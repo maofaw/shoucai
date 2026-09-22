@@ -66,12 +66,39 @@ function renderProfit() {
   const profit = state.data.plan.profit;
   const accounts = positiveNumber(state.settings.accounts, state.data.defaults.accounts);
   const rateWan = positiveNumber(state.settings.rate, state.data.defaults.haffPerCnyWan);
-  const base = profit.stockedWeeklyPerAccount ?? profit.noStockWeeklyPerAccount;
-  document.querySelector('#stockedProfit').textContent = profit.stockedWeeklyPerAccount == null ? '--' : `${moneyWan(profit.stockedWeeklyPerAccount)} 哈夫币`;
+  renderProfitScenario({
+    prefix: 'cash',
+    weeklyPerAccount: profit.noStockWeeklyPerAccount,
+    dailyPerAccount: profit.noStockDailyPerAccount,
+    accounts,
+    rateWan
+  });
+  renderProfitScenario({
+    prefix: 'stocked',
+    weeklyPerAccount: profit.stockedWeeklyPerAccount,
+    dailyPerAccount: profit.stockedDailyPerAccount,
+    accounts,
+    rateWan
+  });
   document.querySelector('#stockedHint').textContent = profit.stockedStatus;
-  document.querySelector('#cashProfit').textContent = `${moneyWan(profit.noStockWeeklyPerAccount)} 哈夫币`;
-  document.querySelector('#accountProfit').textContent = `${moneyWan(base * accounts)} 哈夫币`;
-  document.querySelector('#cnyProfit').textContent = `约 ${nf.format(base * accounts / (rateWan * 10_000))} 元`;
+}
+
+function renderProfitScenario({ prefix, weeklyPerAccount, dailyPerAccount, accounts, rateWan }) {
+  const available = Number.isFinite(Number(weeklyPerAccount));
+  const weekly = available ? Number(weeklyPerAccount) : null;
+  const daily = available
+    ? Number.isFinite(Number(dailyPerAccount)) ? Number(dailyPerAccount) : weekly / 7
+    : null;
+  const accountLabel = `${nf.format(accounts)}号`;
+  document.querySelector(`#${prefix}AllDailyLabel`).textContent = `${accountLabel}日均`;
+  document.querySelector(`#${prefix}AllWeeklyLabel`).textContent = `${accountLabel}一周`;
+  document.querySelector(`#${prefix}DailyPerAccount`).textContent = available ? moneyWan(daily) : '--';
+  document.querySelector(`#${prefix}WeeklyPerAccount`).textContent = available ? moneyWan(weekly) : '--';
+  document.querySelector(`#${prefix}DailyAll`).textContent = available ? moneyWan(daily * accounts) : '--';
+  document.querySelector(`#${prefix}WeeklyAll`).textContent = available ? moneyWan(weekly * accounts) : '--';
+  document.querySelector(`#${prefix}Cny`).textContent = available
+    ? `日约 ${nf.format(daily * accounts / (rateWan * 10_000))} 元 · 周约 ${nf.format(weekly * accounts / (rateWan * 10_000))} 元`
+    : '等待首次低价买入信号';
 }
 
 function renderRecipes() {

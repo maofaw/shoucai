@@ -37,6 +37,8 @@ test('dashboard keeps stocked total unavailable until a buy signal is recorded',
     generatedAt: new Date('2026-09-22T10:00:00Z')
   });
   assert.equal(data.plan.profit.stockedWeeklyPerAccount, null);
+  assert.equal(data.plan.profit.stockedDailyPerAccount, null);
   assert.equal(data.plan.profit.noStockWeeklyPerAccount, 1800);
+  assert.equal(data.plan.profit.noStockDailyPerAccount, 257);
   assert.equal(data.defaults.haffPerCnyWan, 52);
 });

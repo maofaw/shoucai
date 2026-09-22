@@ -96,8 +96,12 @@ export function buildDashboardData({ snapshot, metadata, recommendations, buyTim
         stockedWeeklyPerAccount: hasCompleteStockedPlan
           ? round(stockedValues.reduce((sum, value) => sum + value, 0))
           : null,
+        stockedDailyPerAccount: hasCompleteStockedPlan
+          ? round(stockedValues.reduce((sum, value) => sum + value, 0) / 7)
+          : null,
         stockedStatus: hasCompleteStockedPlan ? '已按最近买入信号计算' : '等待首次买入信号',
         noStockWeeklyPerAccount: round(noStockWeekly),
+        noStockDailyPerAccount: round(noStockWeekly / 7),
         provisional: true
       }
     },

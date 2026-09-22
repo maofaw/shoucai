@@ -42,23 +42,35 @@
         <span id="planState" class="muted-chip">临时方案</span>
       </div>
 
-      <div class="profit-grid">
-        <article class="metric-card metric-card--accent">
-          <span>有囤料 · 单号周保底</span>
-          <strong id="stockedProfit">--</strong>
-          <small id="stockedHint">等待首次买入信号</small>
+      <div class="profit-grid" aria-label="利润总览">
+        <article class="profit-card profit-card--accent">
+          <div class="profit-card__head">
+            <div><span>没囤料</span><strong>按当前价格现买材料</strong></div>
+            <b>临时估算</b>
+          </div>
+          <div class="profit-values">
+            <div><span>单号日均</span><strong id="cashDailyPerAccount">--</strong></div>
+            <div><span>单号一周</span><strong id="cashWeeklyPerAccount">--</strong></div>
+            <div><span id="cashAllDailyLabel">全部账号日均</span><strong id="cashDailyAll">--</strong></div>
+            <div><span id="cashAllWeeklyLabel">全部账号一周</span><strong id="cashWeeklyAll">--</strong></div>
+          </div>
+          <div class="profit-cny"><span>折合人民币</span><strong id="cashCny">--</strong></div>
         </article>
-        <article class="metric-card">
-          <span>没囤料 · 单号周保底</span>
-          <strong id="cashProfit">--</strong>
-          <small>按当前材料价临时估算</small>
+
+        <article class="profit-card">
+          <div class="profit-card__head">
+            <div><span>有囤料</span><strong>按低价买入成本计算</strong></div>
+            <b id="stockedHint">等待信号</b>
+          </div>
+          <div class="profit-values">
+            <div><span>单号日均</span><strong id="stockedDailyPerAccount">--</strong></div>
+            <div><span>单号一周</span><strong id="stockedWeeklyPerAccount">--</strong></div>
+            <div><span id="stockedAllDailyLabel">全部账号日均</span><strong id="stockedDailyAll">--</strong></div>
+            <div><span id="stockedAllWeeklyLabel">全部账号一周</span><strong id="stockedWeeklyAll">--</strong></div>
+          </div>
+          <div class="profit-cny"><span>折合人民币</span><strong id="stockedCny">等待首次低价买入信号</strong></div>
         </article>
       </div>
-
-      <article class="summary-card">
-        <div><span>多账号合计</span><strong id="accountProfit">--</strong></div>
-        <div><span>折算人民币</span><strong id="cnyProfit">--</strong></div>
-      </article>
 
       <div id="recipeList" class="recipe-list" aria-live="polite"></div>
 

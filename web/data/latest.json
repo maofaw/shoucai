@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-09-22T12:55:24.204Z",
-  "builtAt": "2026-09-22T12:56:03.214Z",
+  "generatedAt": "2026-09-22T15:29:44.311Z",
+  "builtAt": "2026-09-22T15:29:44.955Z",
   "staleAfterHours": 4,
   "source": {
     "name": "Moligod",
@@ -21,9 +21,9 @@
         "label": "工作台",
         "main": "4.6 x 30mm AP ST",
         "hours": 8,
-        "backup": "4.6x30mm AP SX",
+        "backup": ".45 ACP Super​",
         "backupHours": 8,
-        "backupDeltaPercent": -5.2,
+        "backupDeltaPercent": -5.3,
         "reason": "常用配方当前仍是最优或接近最优",
         "weeklyRuns": 18
       },
@@ -34,19 +34,19 @@
         "hours": 16,
         "backup": "PSG-1射手步枪",
         "backupHours": 16,
-        "backupDeltaPercent": -25.1,
+        "backupDeltaPercent": -30.5,
         "reason": "常用配方当前仍是最优或接近最优",
         "weeklyRuns": 9
       },
       {
         "place": "pharmacy",
         "label": "制药台",
-        "main": "M2肌肉注射剂",
+        "main": "精密护甲维修包",
         "hours": 8,
-        "backup": "战地医疗箱",
+        "backup": "高级护甲维修组合",
         "backupHours": 8,
-        "backupDeltaPercent": -10.4,
-        "reason": "比常用配方的整周预计净利润高出14.8%",
+        "backupDeltaPercent": -10.8,
+        "reason": "常用配方当前仍是最优或接近最优",
         "weeklyRuns": 18
       },
       {
@@ -56,15 +56,17 @@
         "hours": 8,
         "backup": "重型突击背心（全新）",
         "backupHours": 8,
-        "backupDeltaPercent": 0.6,
+        "backupDeltaPercent": 1.9,
         "reason": "其他配方未比常用配方高出10%",
         "weeklyRuns": 18
       }
     ],
     "profit": {
       "stockedWeeklyPerAccount": null,
+      "stockedDailyPerAccount": null,
       "stockedStatus": "等待首次买入信号",
-      "noStockWeeklyPerAccount": 10228257,
+      "noStockWeeklyPerAccount": 10836180,
+      "noStockDailyPerAccount": 1548026,
       "provisional": true
     }
   },
@@ -73,13 +75,13 @@
       "place": "workbench",
       "label": "工作台",
       "recipe": "4.6 x 30mm AP ST",
-      "action": "wait",
-      "actionLabel": "等待更低价格",
+      "action": "small-buy",
+      "actionLabel": "只补生产刚需",
       "tier": null,
       "days": 0,
-      "reason": "整套材料处于近30天约51%分位，偏贵，继续等待",
-      "currentCost": 253409,
-      "currentPercentile": 50.6,
+      "reason": "整套材料价格处于近30天正常偏低区，只补约3天",
+      "currentCost": 251595,
+      "currentPercentile": 44.6,
       "thresholds": {
         "days30": 242496,
         "days14": 243913,
@@ -92,29 +94,37 @@
       "place": "tech",
       "label": "技术中心",
       "recipe": "SVD狙击步枪",
-      "action": "error",
-      "actionLabel": "暂时无法判断",
+      "action": "wait",
+      "actionLabel": "等待更低价格",
       "tier": null,
       "days": 0,
-      "reason": "30天材料行情暂时不可用，本轮不建议囤货",
+      "reason": "整套材料处于近30天约97%分位，偏贵，继续等待",
       "currentCost": 56523,
-      "currentPercentile": null,
-      "thresholds": null,
+      "currentPercentile": 96.7,
+      "thresholds": {
+        "days30": 54688,
+        "days14": 54688,
+        "days7": 55307
+      },
       "perAccountBudget": null,
       "perAccountMaterials": []
     },
     {
       "place": "pharmacy",
       "label": "制药台",
-      "recipe": "M2肌肉注射剂",
-      "action": "error",
-      "actionLabel": "暂时无法判断",
+      "recipe": "精密护甲维修包",
+      "action": "wait",
+      "actionLabel": "等待更低价格",
       "tier": null,
       "days": 0,
-      "reason": "30天材料行情暂时不可用，本轮不建议囤货",
-      "currentCost": 11529,
-      "currentPercentile": null,
-      "thresholds": null,
+      "reason": "整套材料处于近30天约67%分位，偏贵，继续等待",
+      "currentCost": 143066,
+      "currentPercentile": 66.8,
+      "thresholds": {
+        "days30": 108566,
+        "days14": 119280,
+        "days7": 127006
+      },
       "perAccountBudget": null,
       "perAccountMaterials": []
     },
@@ -126,13 +136,13 @@
       "actionLabel": "等待更低价格",
       "tier": null,
       "days": 0,
-      "reason": "整套材料处于近30天约90%分位，偏贵，继续等待",
-      "currentCost": 102207,
-      "currentPercentile": 90.1,
+      "reason": "整套材料处于近30天约74%分位，偏贵，继续等待",
+      "currentCost": 96785,
+      "currentPercentile": 74.1,
       "thresholds": {
-        "days30": 86921,
-        "days14": 88103,
-        "days7": 89825
+        "days30": 86981,
+        "days14": 88119,
+        "days7": 89893
       },
       "perAccountBudget": null,
       "perAccountMaterials": []
@@ -155,7 +165,7 @@
   },
   "market": {
     "bestWeekday": "周日",
-    "bestHour": 5,
+    "bestHour": 4,
     "bestPoweredHour": 15
   }
 }
