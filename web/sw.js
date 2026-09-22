@@ -1,5 +1,5 @@
-const CACHE = 'shoucai-v5';
-const APP_SHELL = ['./', './index.html', './styles.css', './app.js', './runtime-config.js', './manifest.webmanifest'];
+const CACHE = 'shoucai-v6';
+const APP_SHELL = ['./', './index.html', './styles.css?v=6', './app.js?v=6', './runtime-config.js', './manifest.webmanifest'];
 
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(APP_SHELL)));
