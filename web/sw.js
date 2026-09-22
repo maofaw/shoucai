@@ -1,4 +1,4 @@
-const CACHE = 'shoucai-v4';
+const CACHE = 'shoucai-v5';
 const APP_SHELL = ['./', './index.html', './styles.css', './app.js', './runtime-config.js', './manifest.webmanifest'];
 
 self.addEventListener('install', event => {

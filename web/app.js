@@ -84,7 +84,7 @@ function renderProfit() {
 }
 
 function renderProfitScenario({ prefix, weeklyPerAccount, dailyPerAccount, accounts, rateWan }) {
-  const available = Number.isFinite(Number(weeklyPerAccount));
+  const available = weeklyPerAccount != null && Number.isFinite(Number(weeklyPerAccount));
   const weekly = available ? Number(weeklyPerAccount) : null;
   const daily = available
     ? Number.isFinite(Number(dailyPerAccount)) ? Number(dailyPerAccount) : weekly / 7
