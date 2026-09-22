@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0b0f17">
+  <meta name="description" content="三角洲行动特勤处个人收菜、囤料与清仓决策看板">
+  <title>三角洲收菜助手</title>
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">跳到主要内容</a>
+  <svg class="icon-sprite" aria-hidden="true">
+    <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 11.5 12 4l9 7.5M5.5 10v10h13V10M9 20v-6h6v6"/></symbol>
+    <symbol id="i-box" viewBox="0 0 24 24"><path d="m4 7 8-4 8 4-8 4-8-4Zm0 0v10l8 4 8-4V7M12 11v10"/></symbol>
+    <symbol id="i-sell" viewBox="0 0 24 24"><path d="M4 6h16M6 6v14h12V6M9 10h6M9 14h6"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M19 13.5v-3l-2-.7-.5-1.2.9-1.9-2.1-2.1-1.9.9-1.2-.5-.7-2h-3l-.7 2-1.2.5-1.9-.9L.6 6.7l.9 1.9L1 9.8l-2 .7v3l2 .7.5 1.2-.9 1.9 2.1 2.1 1.9-.9 1.2.5.7 2h3l.7-2 1.2-.5 1.9.9 2.1-2.1-.9-1.9.5-1.2 2-.7Z" transform="translate(2) scale(.83)"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 3 2.5 20h19L12 3Z"/><path d="M12 9v5M12 17.5v.1"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M6.1 8A7 7 0 0 1 18 6l2 2M17.9 16A7 7 0 0 1 6 18l-2-2"/></symbol>
+  </svg>
+
+  <header class="app-header">
+    <div>
+      <p class="eyebrow">特勤处个人看板</p>
+      <h1>三角洲收菜助手</h1>
+    </div>
+    <div id="freshness" class="status-pill" aria-live="polite">正在读取行情</div>
+  </header>
+
+  <div id="staleBanner" class="alert-banner" role="alert" hidden>
+    <svg class="icon"><use href="#i-alert"/></svg>
+    <div><strong>行情数据已过期</strong><span>暂勿按当前页面大量囤料，请等待数据恢复。</span></div>
+  </div>
+
+  <main id="main" class="content" tabindex="-1">
+    <section class="view is-active" data-view="home" aria-labelledby="home-title">
+      <div class="section-heading">
+        <div><p class="eyebrow">本周执行方案</p><h2 id="home-title">今天分别造什么</h2></div>
+        <span id="planState" class="muted-chip">临时方案</span>
+      </div>
+
+      <div class="profit-grid">
+        <article class="metric-card metric-card--accent">
+          <span>有囤料 · 单号周保底</span>
+          <strong id="stockedProfit">--</strong>
+          <small id="stockedHint">等待首次买入信号</small>
+        </article>
+        <article class="metric-card">
+          <span>没囤料 · 单号周保底</span>
+          <strong id="cashProfit">--</strong>
+          <small>按当前材料价临时估算</small>
+        </article>
+      </div>
+
+      <article class="summary-card">
+        <div><span>多账号合计</span><strong id="accountProfit">--</strong></div>
+        <div><span>折算人民币</span><strong id="cnyProfit">--</strong></div>
+      </article>
+
+      <div id="recipeList" class="recipe-list" aria-live="polite"></div>
+
+      <article class="harvest-card">
+        <div class="card-icon"><svg class="icon"><use href="#i-clock"/></svg></div>
+        <div class="harvest-copy"><span>下次收菜</span><strong id="nextHarvest">尚未记录</strong><small id="harvestCountdown">完成本轮后点击按钮</small></div>
+        <button id="finishHarvest" class="primary-button admin-only" type="button" hidden>本轮已完成</button>
+      </article>
+    </section>
+
+    <section class="view" data-view="buy" aria-labelledby="buy-title" hidden>
+      <div class="section-heading"><div><p class="eyebrow">30天价格分位</p><h2 id="buy-title">本周买什么</h2></div></div>
+      <p class="section-note">只看结论：进入最低30%囤7天，最低15%囤14天，最低5%囤30天。</p>
+      <div id="buyList" class="buy-list"></div>
+    </section>
+
+    <section class="view" data-view="sell" aria-labelledby="sell-title" hidden>
+      <div class="section-heading"><div><p class="eyebrow">周末统一清仓</p><h2 id="sell-title">什么时候卖</h2></div></div>
+      <article class="sell-card">
+        <span>当前推荐窗口</span>
+        <strong id="sellWindow">周六 21:30</strong>
+        <p id="sellBasis">最近4个周末样本不足时沿用固定窗口。</p>
+        <div class="sell-rule"><span>定价策略</span><b id="sellRule">比最低价低1个价位</b></div>
+        <div class="reminder-row"><span>飞书提醒</span><b>提前12小时、30分钟、10分钟</b></div>
+        <button id="finishSell" class="primary-button admin-only" type="button" hidden>清仓完成并生成下周方案</button>
+      </article>
+      <article class="info-card"><strong>兜底规则</strong><p>未点击“清仓完成”时，周日00:30自动生成下一周方案。</p></article>
+    </section>
+
+    <section class="view" data-view="settings" aria-labelledby="settings-title" hidden>
+      <div class="section-heading"><div><p class="eyebrow">只保存在当前浏览器</p><h2 id="settings-title">计算设置</h2></div></div>
+      <form id="settingsForm" class="settings-card">
+        <label for="accounts">账号数量</label>
+        <input id="accounts" name="accounts" type="number" inputmode="numeric" min="1" max="999" step="1">
+        <small>用于计算多账号合计材料和利润。</small>
+        <label for="rate">变现比例</label>
+        <div class="input-suffix"><input id="rate" name="rate" type="number" inputmode="decimal" min="1" step="0.1"><span>万哈夫币 / 1元</span></div>
+        <small>例如填写52，表示52万哈夫币兑换1元。</small>
+        <button class="primary-button" type="submit">保存设置</button>
+      </form>
+      <article class="source-card">
+        <span>行情来源与更新时间</span>
+        <a id="sourceLink" href="https://moligod.com/crafting" target="_blank" rel="noreferrer">Moligod 特勤处制造</a>
+        <small id="sourceTime">--</small>
+      </article>
+    </section>
+  </main>
+
+  <nav class="bottom-nav" aria-label="主要导航">
+    <button class="nav-item is-active" type="button" data-target="home" aria-current="page"><svg class="icon"><use href="#i-home"/></svg><span>首页</span></button>
+    <button class="nav-item" type="button" data-target="buy"><svg class="icon"><use href="#i-box"/></svg><span>买料</span></button>
+    <button class="nav-item" type="button" data-target="sell"><svg class="icon"><use href="#i-sell"/></svg><span>清仓</span></button>
+    <button class="nav-item" type="button" data-target="settings"><svg class="icon"><use href="#i-settings"/></svg><span>设置</span></button>
+  </nav>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+  <script src="./runtime-config.js"></script>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

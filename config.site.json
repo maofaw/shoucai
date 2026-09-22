@@ -1,0 +1,63 @@
+{
+  "snapshotUrl": "https://moligod.com/api/market/special-ops-snapshot",
+  "accounts": 28,
+  "switchThreshold": 0.05,
+  "switchBasis": "weeklyProjectedProfit",
+  "history": {
+    "lookbackDays": 30,
+    "marketLimit": 720,
+    "minimumSamples": 72,
+    "minimumSpanHours": 336
+  },
+  "dashboard": {
+    "title": "三角洲收菜助手",
+    "staleAfterHours": 4,
+    "defaultAccounts": 28,
+    "defaultHaffPerCnyWan": 52,
+    "weekendLookbackWeeks": 4,
+    "weekendConservativePercentile": 0.25
+  },
+  "buyTiers": [
+    { "maxPercentile": 5, "days": 30, "label": "极低价格" },
+    { "maxPercentile": 15, "days": 14, "label": "深度低价" },
+    { "maxPercentile": 30, "days": 7, "label": "普通低价" }
+  ],
+  "placeRules": {
+    "workbench": {
+      "label": "工作台",
+      "allowedHours": [7, 8],
+      "weeklyRuns": 18,
+      "preferredNames": ["4.6 x 30mm AP ST", "4.6×30mm AP ST"]
+    },
+    "tech": {
+      "label": "技术中心",
+      "allowedHours": [16, 24],
+      "weeklyRunsByHours": { "16": 9, "24": 6 },
+      "preferredNames": ["SVD狙击步枪"]
+    },
+    "pharmacy": {
+      "label": "制药台",
+      "allowedHours": [8],
+      "weeklyRuns": 18,
+      "preferredNames": ["精密护甲维修包"]
+    },
+    "armory": {
+      "label": "防具台",
+      "allowedHours": [8],
+      "weeklyRuns": 18,
+      "switchThreshold": 0.1,
+      "weakeningThreshold": 0.1,
+      "preferredNames": ["H09 防暴头盔（全新）", "H09防暴头盔（全新）", "H09 防暴头盔"]
+    }
+  },
+  "manualBuyThresholds": {
+    "4.6 x 30mm AP ST": {
+      "totalCost": 240000,
+      "materials": { "高级燃料": 95000, "航天冷却剂": 145000 }
+    },
+    "4.6×30mm AP ST": {
+      "totalCost": 240000,
+      "materials": { "高级燃料": 95000, "航天冷却剂": 145000 }
+    }
+  }
+}

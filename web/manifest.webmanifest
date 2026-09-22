@@ -1,0 +1,9 @@
+{
+  "name": "三角洲收菜助手",
+  "short_name": "收菜助手",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#0b0f17",
+  "theme_color": "#0b0f17",
+  "lang": "zh-CN"
+}
