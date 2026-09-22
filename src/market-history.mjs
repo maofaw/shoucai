@@ -153,10 +153,13 @@ export function combineHistories(histories, now = new Date()) {
 
 export function analyzeSeries(series, currentValue) {
   const values = series.map(point => point.value).filter(Number.isFinite).sort((a, b) => a - b);
-  const byHour = groupedAverages(series, point => point.date.getHours());
+  const byHour = groupedAverages(series, point => chinaParts(point.date).hour);
   const dailySeries = completeDailyAverages(series);
-  const byWeekday = groupedAverages(dailySeries, point => WEEKDAYS[point.date.getDay()]);
-  const bySlot = groupedAverages(series, point => `${WEEKDAYS[point.date.getDay()]} ${String(point.date.getHours()).padStart(2, '0')}:00`)
+  const byWeekday = groupedAverages(dailySeries, point => WEEKDAYS[chinaParts(point.date).weekday]);
+  const bySlot = groupedAverages(series, point => {
+    const parts = chinaParts(point.date);
+    return `${WEEKDAYS[parts.weekday]} ${String(parts.hour).padStart(2, '0')}:00`;
+  })
     .filter(item => item.count >= 2);
   const currentPercentile = values.length
     ? values.filter(value => value <= currentValue).length / values.length * 100
@@ -185,7 +188,8 @@ export function analyzeSeries(series, currentValue) {
 function completeDailyAverages(series) {
   const days = new Map();
   for (const point of series) {
-    const key = `${point.date.getFullYear()}-${String(point.date.getMonth() + 1).padStart(2, '0')}-${String(point.date.getDate()).padStart(2, '0')}`;
+    const parts = chinaParts(point.date);
+    const key = `${parts.year}-${String(parts.month).padStart(2, '0')}-${String(parts.day).padStart(2, '0')}`;
     const day = days.get(key) ?? { date: point.date, total: 0, count: 0 };
     day.total += point.value;
     day.count += 1;
@@ -194,6 +198,17 @@ function completeDailyAverages(series) {
   return [...days.values()]
     .filter(day => day.count >= 20)
     .map(day => ({ date: day.date, value: day.total / day.count }));
+}
+
+function chinaParts(date) {
+  const shifted = new Date(date.getTime() + 8 * 60 * 60 * 1000);
+  return {
+    year: shifted.getUTCFullYear(),
+    month: shifted.getUTCMonth() + 1,
+    day: shifted.getUTCDate(),
+    hour: shifted.getUTCHours(),
+    weekday: shifted.getUTCDay()
+  };
 }
 
 function groupedAverages(series, keyFn) {
