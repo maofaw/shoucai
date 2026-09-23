@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { fetchSpecialOpsSnapshot } from './moligod.mjs';
 import { buildRecommendations } from './recommend.mjs';
 import { fetchMaterialHistory } from './market-history.mjs';
-import { enrichRecommendationsWithWeekendPrices } from './weekend-prices.mjs';
+import { buildPortfolioSaleTiming, enrichRecommendationsWithWeekendPrices } from './weekend-prices.mjs';
 import { buildWeeklyBuyAdvice, materialNamesForSelectedRecipes } from './buy-window.mjs';
 import { applyExchangePricing } from './exchange-pricing.mjs';
 import { buildDashboardData } from './web-data.mjs';
@@ -30,6 +30,7 @@ const exchangeHistories = Object.fromEntries(await Promise.all(exchangeSourceNam
 const snapshot = applyExchangePricing(rawSnapshot, config.exchangeRules, exchangeHistories);
 const baseRecommendations = buildRecommendations(snapshot, config);
 const recommendations = await enrichRecommendationsWithWeekendPrices(baseRecommendations, config);
+const sellPlan = buildPortfolioSaleTiming(recommendations, config);
 const materialNames = materialNamesForSelectedRecipes(recommendations);
 const historiesByMaterial = Object.fromEntries(await Promise.all(materialNames.map(async name => {
   if (exchangeHistories[name]) return [name, exchangeHistories[name]];
@@ -57,7 +58,7 @@ const buyPlan = buildWeeklyBuyAdvice({
   previousPlan,
   materialFilter: config.buyMaterialFilter
 });
-const dashboard = buildDashboardData({ snapshot, metadata, recommendations, buyPlan, config });
+const dashboard = buildDashboardData({ snapshot, metadata, recommendations, buyPlan, sellPlan, config });
 fs.mkdirSync(path.dirname(destination), { recursive: true });
 fs.writeFileSync(destination, `${JSON.stringify(dashboard, null, 2)}\n`, 'utf8');
 console.log(`Dashboard data written: ${destination}`);

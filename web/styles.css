@@ -101,6 +101,8 @@ h2 { font-size: clamp(23px, 5vw, 30px); line-height: 1.25; letter-spacing: -.025
 .sell-card > span { color: var(--muted); font-size: 13px; }
 .sell-card > strong { display: block; font-size: 30px; margin: 4px 0 8px; }
 .sell-card p, .info-card p { color: var(--muted); font-size: 14px; }
+.sell-evidence { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 14px; }
+.sell-evidence span { padding: 6px 9px; border: 1px solid rgba(91,167,255,.28); border-radius: 999px; color: #bcdcff; background: rgba(91,167,255,.1); font-size: 12px; font-weight: 700; }
 .sell-rule, .reminder-row { display: flex; justify-content: space-between; gap: 16px; padding: 13px 0; border-top: 1px solid var(--border); margin-top: 14px; }
 .reminder-row { margin-top: 0; }
 .sell-rule span, .reminder-row span { color: var(--muted); }

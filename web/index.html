@@ -8,7 +8,7 @@
   <title>三角洲收菜助手</title>
   <link rel="icon" type="image/svg+xml" href="./favicon.svg">
   <link rel="manifest" href="./manifest.webmanifest">
-  <link rel="stylesheet" href="./styles.css?v=12">
+  <link rel="stylesheet" href="./styles.css?v=13">
 </head>
 <body>
   <a class="skip-link" href="#main">跳到主要内容</a>
@@ -67,7 +67,14 @@
     </section>
     <section class="view" data-view="sell" aria-labelledby="sell-title" hidden>
       <div class="section-heading"><div><p class="eyebrow">周末统一清仓</p><h2 id="sell-title" tabindex="-1">什么时候卖</h2></div></div>
-      <article class="sell-card"><span>推荐卖货时间</span><strong id="sellWindow">--</strong><p id="sellBasis">正在读取卖货建议…</p><div class="sell-rule"><span>你的卖法</span><b id="sellRule">比当前最低价低1个价位</b></div><button id="finishSell" class="secondary-button admin-only" type="button" hidden>清仓完成</button></article>
+      <article class="sell-card">
+        <span>首选清仓窗口</span><strong id="sellWindow">--</strong>
+        <div class="sell-evidence" aria-label="清仓建议可信度"><span id="sellConfidence">分析中</span><span id="sellCoverage">读取历史行情</span></div>
+        <p id="sellBasis">正在读取卖货建议…</p>
+        <div id="sellBackupRow" class="sell-rule" hidden><span>备选窗口</span><b id="sellBackup">--</b></div>
+        <div class="sell-rule"><span>你的卖法</span><b id="sellRule">比当前最低价低1个价位</b></div>
+        <button id="finishSell" class="secondary-button admin-only" type="button" hidden>清仓完成</button>
+      </article>
     </section>
     <section class="view" data-view="settings" aria-labelledby="settings-title" hidden>
       <div class="section-heading"><div><p class="eyebrow">在这台设备上保存</p><h2 id="settings-title" tabindex="-1">计算设置</h2></div></div>
@@ -90,6 +97,6 @@
   </nav>
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
   <script src="./runtime-config.js"></script>
-  <script type="module" src="./app.js?v=12"></script>
+  <script type="module" src="./app.js?v=13"></script>
 </body>
 </html>

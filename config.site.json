@@ -18,7 +18,12 @@
     "defaultBuyBudgetPerAccount": 10000000,
     "defaultHaffPerCnyWan": 52,
     "weekendLookbackWeeks": 4,
-    "weekendConservativePercentile": 0.25
+    "weekendConservativePercentile": 0.25,
+    "weekendSellMinimumWeeks": 3,
+    "weekendSellWindowHours": 2,
+    "weekendSellMinHour": 9,
+    "weekendSellMaxHour": 22,
+    "weekendSellMinimumCoverage": 0.75
   },
   "buyTiers": [
     { "maxPercentile": 5, "days": 30, "label": "极低价格" },

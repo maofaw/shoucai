@@ -23,6 +23,20 @@ export function analyzeWeekendSaleHistory(rows, options = {}) {
   const minimumWeeks = Number(options.minimumWeeks ?? 3);
   const minimumSamples = Number(options.minimumSamples ?? 12);
   const ready = observedWeeks >= minimumWeeks && prices.length >= minimumSamples;
+  const windowHours = Number(options.windowHours ?? 2);
+  const minStartHour = Number(options.minStartHour ?? 9);
+  const maxStartHour = Number(options.maxStartHour ?? 22);
+  const saleWindows = ready
+    ? buildSaleWindows(points, {
+        overallConservativePrice: percentile(prices, lowerPercentile),
+        overallMedianPrice: percentile(prices, 0.5),
+        lowerPercentile,
+        minimumWeeks,
+        windowHours,
+        minStartHour,
+        maxStartHour
+      })
+    : [];
 
   return {
     ready,
@@ -34,7 +48,9 @@ export function analyzeWeekendSaleHistory(rows, options = {}) {
     highPrice: ready ? percentile(prices, higherPercentile) : null,
     medianPrice: ready ? percentile(prices, 0.5) : null,
     lowerPercentile,
-    higherPercentile
+    higherPercentile,
+    windowHours,
+    saleWindows
   };
 }
 
@@ -83,8 +99,104 @@ export function saleScenariosForCandidate(candidate, historyAnalysis) {
       highUnitPrice: evidenced ? historyAnalysis.highPrice : null,
       currentUnitPrice: Number(recipe.output_current_price) || (usableUnit ? candidate.revenue / outputCount : null),
       lowerPercentile: historyAnalysis?.lowerPercentile ?? 0.25,
-      higherPercentile: historyAnalysis?.higherPercentile ?? 0.75
+      higherPercentile: historyAnalysis?.higherPercentile ?? 0.75,
+      saleWindows: evidenced ? historyAnalysis.saleWindows ?? [] : []
     }
+  };
+}
+
+export function buildPortfolioSaleTiming(recommendations, config = {}) {
+  const dashboard = config.dashboard ?? config;
+  const selected = (recommendations ?? [])
+    .map(item => item.cashSelected ?? item.selected)
+    .filter(Boolean);
+  const totalRecipes = selected.length;
+  const minimumCoverageRatio = Number(dashboard.weekendSellMinimumCoverage ?? 0.75);
+  const minimumCoveredRecipes = totalRecipes
+    ? Math.max(1, Math.ceil(totalRecipes * minimumCoverageRatio))
+    : 0;
+  const byKey = new Map();
+
+  for (const candidate of selected) {
+    const windows = candidate.priceEvidence?.saleWindows ?? [];
+    const weight = Math.max(1, Number(candidate.conservativeRevenue ?? candidate.revenue ?? 1)
+      * Number(candidate.runsPerWeek ?? 1));
+    for (const window of windows) {
+      if (!window.ready) continue;
+      const current = byKey.get(window.key) ?? {
+        ...window,
+        weightedScore: 0,
+        weight: 0,
+        sampleCount: 0,
+        observedWeeks: Infinity,
+        coveredRecipes: 0
+      };
+      current.weightedScore += Number(window.score) * weight;
+      current.weight += weight;
+      current.sampleCount += Number(window.sampleCount ?? 0);
+      current.observedWeeks = Math.min(current.observedWeeks, Number(window.observedWeeks ?? 0));
+      current.coveredRecipes += 1;
+      byKey.set(window.key, current);
+    }
+  }
+
+  const ranked = [...byKey.values()]
+    .filter(window => window.coveredRecipes >= minimumCoveredRecipes)
+    .map(window => ({
+      ...window,
+      score: window.weight ? window.weightedScore / window.weight : 0,
+      liftPercent: window.weight ? (window.weightedScore / window.weight - 1) * 100 : null
+    }))
+    .sort((a, b) => b.score - a.score
+      || b.coveredRecipes - a.coveredRecipes
+      || b.observedWeeks - a.observedWeeks);
+  const primary = ranked[0] ?? null;
+  const backup = primary
+    ? ranked.find(window => window.weekday !== primary.weekday
+      || Math.abs(window.startHour - primary.startHour) >= Number(window.windowHours ?? 2)) ?? null
+    : null;
+  const ready = Boolean(primary && totalRecipes > 0);
+  const highConfidence = ready
+    && primary.coveredRecipes === totalRecipes
+    && primary.observedWeeks >= Number(dashboard.weekendLookbackWeeks ?? 4);
+
+  if (!ready) {
+    return {
+      ready: false,
+      preferredWeekday: '周六',
+      preferredStartTime: '21:30',
+      preferredEndTime: null,
+      preferredWindow: '周六 21:30',
+      backupWindow: null,
+      confidence: '样本不足',
+      sampleCount: 0,
+      observedWeeks: 0,
+      coveredRecipes: 0,
+      totalRecipes,
+      basis: '周末历史样本还不足，暂时沿用你的习惯：周六21:30集中出售'
+    };
+  }
+
+  const coverageText = `覆盖${primary.coveredRecipes}/${totalRecipes}个制造台、${primary.observedWeeks}个周末、${primary.sampleCount}条小时行情`;
+  const liftText = Math.abs(primary.liftPercent) < 0.5
+    ? '与周末平均价基本持平，但稳定性最好'
+    : primary.liftPercent > 0
+      ? `综合保守价比各成品周末平均约高${primary.liftPercent.toFixed(1)}%`
+      : '这是当前可操作时段里综合最稳的窗口';
+  return {
+    ready: true,
+    preferredWeekday: primary.weekdayLabel,
+    preferredStartTime: formatHour(primary.startHour),
+    preferredEndTime: formatHour(primary.endHour),
+    preferredWindow: formatSaleWindow(primary),
+    backupWindow: backup ? formatSaleWindow(backup) : null,
+    confidence: highConfidence ? '高' : '中',
+    sampleCount: primary.sampleCount,
+    observedWeeks: primary.observedWeeks,
+    coveredRecipes: primary.coveredRecipes,
+    totalRecipes,
+    liftPercent: round(primary.liftPercent, 1),
+    basis: `按最近${Number(dashboard.weekendLookbackWeeks ?? 4)}个周末比较连续${primary.windowHours}小时售价；${coverageText}。${liftText}`
   };
 }
 
@@ -165,7 +277,11 @@ export async function enrichRecommendationsWithWeekendPrices(recommendations, co
             now,
             lookbackWeeks: Number(config.dashboard?.weekendLookbackWeeks ?? 4),
             lowerPercentile: Number(config.dashboard?.weekendConservativePercentile ?? 0.25),
-            higherPercentile: Number(config.dashboard?.weekendHighPercentile ?? 0.75)
+            higherPercentile: Number(config.dashboard?.weekendHighPercentile ?? 0.75),
+            minimumWeeks: Number(config.dashboard?.weekendSellMinimumWeeks ?? 3),
+            windowHours: Number(config.dashboard?.weekendSellWindowHours ?? 2),
+            minStartHour: Number(config.dashboard?.weekendSellMinHour ?? 9),
+            maxStartHour: Number(config.dashboard?.weekendSellMaxHour ?? 22)
           }))
           .catch(() => null));
       }
@@ -212,6 +328,67 @@ function chinaWeekKey(date) {
   shifted.setUTCHours(0, 0, 0, 0);
   shifted.setUTCDate(shifted.getUTCDate() - ((weekday + 6) % 7));
   return shifted.toISOString().slice(0, 10);
+}
+
+function buildSaleWindows(points, options) {
+  const results = [];
+  for (const weekday of [6, 0]) {
+    for (let startHour = options.minStartHour; startHour <= options.maxStartHour; startHour += 1) {
+      const endHour = startHour + options.windowHours;
+      if (endHour > 24) continue;
+      const windowPoints = points.filter(point => {
+        const parts = chinaParts(point.date);
+        return parts.weekday === weekday && parts.hour >= startHour && parts.hour < endHour;
+      });
+      const prices = windowPoints.map(point => point.price).sort((a, b) => a - b);
+      const observedWeeks = new Set(windowPoints.map(point => chinaWeekKey(point.date))).size;
+      const minimumSamples = options.minimumWeeks * options.windowHours;
+      const ready = observedWeeks >= options.minimumWeeks && prices.length >= minimumSamples;
+      if (!ready) continue;
+      const conservativePrice = percentile(prices, options.lowerPercentile);
+      const medianPrice = percentile(prices, 0.5);
+      const conservativeRatio = options.overallConservativePrice > 0
+        ? conservativePrice / options.overallConservativePrice
+        : 1;
+      const medianRatio = options.overallMedianPrice > 0
+        ? medianPrice / options.overallMedianPrice
+        : 1;
+      results.push({
+        key: `${weekday}-${startHour}`,
+        weekday,
+        weekdayLabel: weekday === 6 ? '周六' : '周日',
+        startHour,
+        endHour,
+        windowHours: options.windowHours,
+        ready,
+        sampleCount: prices.length,
+        observedWeeks,
+        conservativePrice,
+        medianPrice,
+        score: conservativeRatio * 0.7 + medianRatio * 0.3
+      });
+    }
+  }
+  return results.sort((a, b) => b.score - a.score);
+}
+
+function chinaParts(date) {
+  const shifted = new Date(date.getTime() + 8 * HOUR_MS);
+  return { weekday: shifted.getUTCDay(), hour: shifted.getUTCHours() };
+}
+
+function formatSaleWindow(window) {
+  return `${window.weekdayLabel} ${formatHour(window.startHour)}–${formatHour(window.endHour)}`;
+}
+
+function formatHour(hour) {
+  return `${String(hour).padStart(2, '0')}:00`;
+}
+
+function round(value, digits = 0) {
+  if (!Number.isFinite(Number(value))) return null;
+  const factor = 10 ** digits;
+  return Math.round(Number(value) * factor) / factor;
 }
 
 function percentile(sortedValues, probability) {

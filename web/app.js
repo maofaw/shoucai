@@ -238,8 +238,15 @@ function renderMaterials(plan, days, suggested) {
 
 function renderSell() {
   const sell = state.data.sell || {};
-  setText('#sellWindow', [sell.preferredWeekday, sell.preferredStartTime].filter(Boolean).join(' ') || '待更新');
+  setText('#sellWindow', sell.preferredWindow || [sell.preferredWeekday, sell.preferredStartTime].filter(Boolean).join(' ') || '待更新');
   setText('#sellBasis', sell.basis || '历史卖价样本不足，暂时无法进一步判断。');
+  setText('#sellConfidence', sell.ready ? '可信度 ' + (sell.confidence || '中') : '暂用习惯时间');
+  setText('#sellCoverage', sell.ready
+    ? '覆盖 ' + (sell.coveredRecipes || 0) + '/' + (sell.totalRecipes || 4) + ' 台 · ' + (sell.observedWeeks || 0) + ' 个周末'
+    : '等待更多周末样本');
+  const backupRow = document.querySelector('#sellBackupRow');
+  backupRow.hidden = !sell.backupWindow;
+  if (sell.backupWindow) setText('#sellBackup', sell.backupWindow);
   setText('#sellRule', '比当前最低价低' + (sell.undercutLevels || 1) + '个价位');
 }
 

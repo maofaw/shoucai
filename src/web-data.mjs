@@ -10,7 +10,7 @@ const ACTION_LABELS = {
   error: '暂时无法判断'
 };
 
-export function buildDashboardData({ snapshot, metadata, recommendations, buyPlan = null, config, generatedAt = new Date() }) {
+export function buildDashboardData({ snapshot, metadata, recommendations, buyPlan = null, sellPlan = null, config, generatedAt = new Date() }) {
   const recipeCards = recommendations.map(item => {
     const main = item.cashSelected ?? item.selected;
     if (!main) return { place: item.place, label: item.label, unavailable: true };
@@ -39,7 +39,7 @@ export function buildDashboardData({ snapshot, metadata, recommendations, buyPla
       weeklyConservativeProfit: round(mainWeekly),
       weeklyHighProfit: round(main.highWeeklyProfit ?? main.weeklyProfit),
       provisional: Boolean(main.priceEvidence?.provisional ?? true),
-      evidence: main.priceEvidence ?? null
+      evidence: publicPriceEvidence(main.priceEvidence)
     };
   });
 
@@ -130,11 +130,20 @@ export function buildDashboardData({ snapshot, metadata, recommendations, buyPla
     buyPlan,
     buys,
     sell: {
-      preferredWeekday: '周六',
-      preferredStartTime: '21:30',
+      ready: Boolean(sellPlan?.ready),
+      preferredWeekday: sellPlan?.preferredWeekday ?? '周六',
+      preferredStartTime: sellPlan?.preferredStartTime ?? '21:30',
+      preferredEndTime: sellPlan?.preferredEndTime ?? null,
+      preferredWindow: sellPlan?.preferredWindow ?? '周六 21:30',
+      backupWindow: sellPlan?.backupWindow ?? null,
+      confidence: sellPlan?.confidence ?? '样本不足',
+      sampleCount: Number(sellPlan?.sampleCount ?? 0),
+      observedWeeks: Number(sellPlan?.observedWeeks ?? 0),
+      coveredRecipes: Number(sellPlan?.coveredRecipes ?? 0),
+      totalRecipes: Number(sellPlan?.totalRecipes ?? recommendations.length),
+      liftPercent: Number.isFinite(Number(sellPlan?.liftPercent)) ? Number(sellPlan.liftPercent) : null,
       undercutLevels: 1,
-      remindersMinutesBefore: [720, 30, 10],
-      basis: '暂未形成稳定的清仓时段模型，当前沿用你的周末集中出售习惯：周六21:30'
+      basis: sellPlan?.basis ?? '周末历史样本还不足，暂时沿用你的习惯：周六21:30集中出售'
     },
     harvest: {
       cycleHours: 8,
@@ -148,4 +157,10 @@ function round(value, digits = 0) {
   if (!Number.isFinite(Number(value))) return null;
   const factor = 10 ** digits;
   return Math.round(Number(value) * factor) / factor;
+}
+
+function publicPriceEvidence(evidence) {
+  if (!evidence) return null;
+  const { saleWindows: _saleWindows, ...publicEvidence } = evidence;
+  return publicEvidence;
 }
