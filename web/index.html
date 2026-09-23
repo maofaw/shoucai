@@ -8,7 +8,7 @@
   <title>三角洲收菜助手</title>
   <link rel="icon" type="image/svg+xml" href="./favicon.svg">
   <link rel="manifest" href="./manifest.webmanifest">
-  <link rel="stylesheet" href="./styles.css?v=11">
+  <link rel="stylesheet" href="./styles.css?v=12">
 </head>
 <body>
   <a class="skip-link" href="#main">跳到主要内容</a>
@@ -30,10 +30,11 @@
   </div>
   <main id="main" class="content" tabindex="-1">
     <section class="view is-active" data-view="home" aria-labelledby="home-title">
-      <div class="section-heading"><div><p class="eyebrow">未来7天 · 已扣除分成</p><h2 id="home-title" tabindex="-1">预计到手利润</h2></div></div>
+      <div class="section-heading"><div><p class="eyebrow">已扣除分成</p><h2 id="home-title" tabindex="-1">预计到手利润</h2></div></div>
       <div class="profit-grid" aria-label="按目前材料价格计算的预计利润">
-        <article id="conservativeCard" class="profit-card profit-card--accent"><span class="profit-card__label">保守预计</span><strong id="conservativeWeekly" class="profit-card__value">--</strong><p id="conservativeCny" class="profit-card__cny">约 -- 元</p></article>
-        <article id="highCard" class="profit-card"><span class="profit-card__label">行情较好时</span><strong id="highWeekly" class="profit-card__value">--</strong><p id="highCny" class="profit-card__cny">约 -- 元</p></article>
+        <article id="monthlyCard" class="profit-card profit-card--accent profit-card--monthly"><span class="profit-card__label">月保守预计 · 30天</span><strong id="conservativeMonthly" class="profit-card__value">--</strong><p id="conservativeMonthlyCny" class="profit-card__cny">约 -- 元</p><small class="profit-card__hint">按一周保守预计 × 4.33 换算</small></article>
+        <article id="conservativeCard" class="profit-card profit-card--weekly"><span class="profit-card__label">一周保守</span><strong id="conservativeWeekly" class="profit-card__value">--</strong><p id="conservativeCny" class="profit-card__cny">约 -- 元</p></article>
+        <article id="highCard" class="profit-card profit-card--weekly"><span class="profit-card__label">一周较高</span><strong id="highWeekly" class="profit-card__value">--</strong><p id="highCny" class="profit-card__cny">约 -- 元</p></article>
       </div>
       <p id="profitBasis" class="profit-basis">按现在买料、周末卖出的历史价格估算。</p>
       <div class="daily-summary"><span>日均到手</span><strong id="dailyRange">--</strong><small>按你的收菜频率折算</small></div>
@@ -89,6 +90,6 @@
   </nav>
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
   <script src="./runtime-config.js"></script>
-  <script type="module" src="./app.js?v=11"></script>
+  <script type="module" src="./app.js?v=12"></script>
 </body>
 </html>

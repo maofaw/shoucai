@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-09-23T12:24:40.840Z",
-  "builtAt": "2026-09-23T12:24:51.702Z",
+  "generatedAt": "2026-09-23T12:45:22.321Z",
+  "builtAt": "2026-09-23T12:46:10.775Z",
   "staleAfterHours": 4,
   "source": {
     "name": "Moligod",
@@ -46,7 +46,7 @@
           "lookbackWeeks": 4,
           "conservativeUnitPrice": 5456.5,
           "highUnitPrice": 6263.75,
-          "currentUnitPrice": 5197,
+          "currentUnitPrice": 5262,
           "lowerPercentile": 0.25,
           "higherPercentile": 0.75
         }
@@ -78,7 +78,7 @@
           "lookbackWeeks": 4,
           "conservativeUnitPrice": 109730.25,
           "highUnitPrice": 116190,
-          "currentUnitPrice": 116100,
+          "currentUnitPrice": 118800,
           "lowerPercentile": 0.25,
           "higherPercentile": 0.75
         }
@@ -150,6 +150,7 @@
     ],
     "profit": {
       "conservativeWeeklyPerAccount": 9154610,
+      "conservativeMonthlyPerAccount": 39639460,
       "conservativeDailyPerAccount": 1307801,
       "highWeeklyPerAccount": 11162462,
       "highDailyPerAccount": 1594637,
@@ -480,13 +481,13 @@
       },
       {
         "name": "特种钢",
-        "currentPrice": 44262,
+        "currentPrice": 42537,
         "targetPrice": 32388,
         "perAccount7Days": 54,
         "perAccount14Days": 105,
         "perAccount30Days": 225,
         "sampleCount": 692,
-        "weeklyCostSharePercent": 31.83,
+        "weeklyCostSharePercent": 30.59,
         "priceSpreadPercent": 55,
         "ignored": false,
         "watchOnly": true,

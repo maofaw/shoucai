@@ -1,5 +1,7 @@
 import { stockEstimate } from './recommend.mjs';
 
+const WEEKS_PER_MONTH = 4.33;
+
 const ACTION_LABELS = {
   buy: '现在适合囤货',
   wait: '等待更低价格',
@@ -110,6 +112,7 @@ export function buildDashboardData({ snapshot, metadata, recommendations, buyPla
       recipes: recipeCards,
       profit: {
         conservativeWeeklyPerAccount: round(conservativeWeekly),
+        conservativeMonthlyPerAccount: round(conservativeWeekly * WEEKS_PER_MONTH),
         conservativeDailyPerAccount: round(conservativeWeekly / 7),
         highWeeklyPerAccount: round(highWeekly),
         highDailyPerAccount: round(highWeekly / 7),

@@ -108,13 +108,17 @@ function renderProfit() {
   const factor = state.settings.accounts - state.settings.sharedAccounts + state.settings.sharedAccounts * state.settings.userShare / 100;
   const weeklyLow = numberOrNull(profit.conservativeWeeklyPerAccount ?? profit.noStockWeeklyPerAccount);
   const weeklyHigh = numberOrNull(profit.highWeeklyPerAccount);
+  const monthlyLow = numberOrNull(profit.conservativeMonthlyPerAccount) ?? (weeklyLow == null ? null : weeklyLow * 4.33);
   const dailyLow = numberOrNull(profit.conservativeDailyPerAccount ?? profit.noStockDailyPerAccount) ?? (weeklyLow == null ? null : weeklyLow / 7);
   const dailyHigh = numberOrNull(profit.highDailyPerAccount) ?? (weeklyHigh == null ? null : weeklyHigh / 7);
+  setText('#conservativeMonthly', monthlyLow == null ? '待更新' : moneyWan(monthlyLow * factor));
   setText('#conservativeWeekly', weeklyLow == null ? '待更新' : moneyWan(weeklyLow * factor));
   setText('#highWeekly', weeklyHigh == null ? '待更新' : moneyWan(weeklyHigh * factor));
+  setText('#conservativeMonthlyCny', monthlyLow == null ? '人民币待更新' : '约 ' + nf.format(monthlyLow * factor / (state.settings.rate * 10_000)) + ' 元');
   setText('#conservativeCny', weeklyLow == null ? '人民币待更新' : '约 ' + nf.format(weeklyLow * factor / (state.settings.rate * 10_000)) + ' 元');
   setText('#highCny', weeklyHigh == null ? '人民币待更新' : '约 ' + nf.format(weeklyHigh * factor / (state.settings.rate * 10_000)) + ' 元');
   setText('#dailyRange', dailyLow == null ? '待更新' : moneyWan(dailyLow * factor) + (dailyHigh == null ? '' : ' ～ ' + moneyWan(dailyHigh * factor)));
+  document.querySelector('#monthlyCard').classList.toggle('is-negative', monthlyLow != null && monthlyLow < 0);
   document.querySelector('#conservativeCard').classList.toggle('is-negative', weeklyLow != null && weeklyLow < 0);
   document.querySelector('#highCard').classList.toggle('is-negative', weeklyHigh != null && weeklyHigh < 0);
   const basis = profit.basis || state.data.plan?.basis || '按当前材料价和历史周末卖价估算';
