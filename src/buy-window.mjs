@@ -5,7 +5,7 @@ const DAY_MS = 86_400_000;
 const WEEK_MS = 7 * DAY_MS;
 const WEEKDAYS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
 const NO_RELIABLE_WINDOW = '本周没有可靠的首选时段，达到好价就买';
-const PLAN_VERSION = 'buy-v3-exchange-and-baseline-watch';
+const PLAN_VERSION = 'buy-v4-exchange-only-and-baseline-watch';
 
 /**
  * Builds one weekly shopping plan for the materials used by all selected stations.

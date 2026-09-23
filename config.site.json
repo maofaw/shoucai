@@ -33,6 +33,7 @@
   "exchangeRules": [
     {
       "target": "高级燃料",
+      "exchangeOnly": true,
       "outputCount": 4,
       "sources": [
         { "name": "盒装挂耳咖啡", "count": 1 },
@@ -41,6 +42,7 @@
     },
     {
       "target": "钛合金",
+      "exchangeOnly": true,
       "outputCount": 4,
       "sources": [
         { "name": "可编程处理器", "count": 1 },

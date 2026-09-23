@@ -30,27 +30,35 @@ export function applyExchangePricing(snapshot, rules = [], historiesByMaterial =
         ? sources.reduce((sum, source) => sum + source.count * source.currentPrice, 0)
         : null;
       const exchangeUnitPrice = exchangeBundleCost === null ? null : exchangeBundleCost / outputCount;
-      const directUnitPrice = Number(material.current_price);
-      const useExchange = Number.isFinite(exchangeUnitPrice)
-        && (!Number.isFinite(directUnitPrice) || exchangeUnitPrice < directUnitPrice);
+      const moligodUnitPrice = Number(material.current_price);
+      const exchangeOnly = Boolean(rule.exchangeOnly);
+      const useExchange = exchangeOnly || (Number.isFinite(exchangeUnitPrice)
+        && (!Number.isFinite(moligodUnitPrice) || exchangeUnitPrice < moligodUnitPrice));
+      const effectiveUnitPrice = useExchange
+        ? (Number.isFinite(exchangeUnitPrice) ? exchangeUnitPrice : moligodUnitPrice)
+        : moligodUnitPrice;
       const sourceText = sources.map(source => `${source.count}个${source.name}`).join('＋');
       const acquisition = {
         mode: useExchange ? 'exchange' : 'direct',
         target: name,
         outputCount,
-        directUnitPrice: Number.isFinite(directUnitPrice) ? directUnitPrice : null,
+        exchangeOnly,
+        directUnitPrice: exchangeOnly ? null : (Number.isFinite(moligodUnitPrice) ? moligodUnitPrice : null),
+        moligodUnitPrice: Number.isFinite(moligodUnitPrice) ? moligodUnitPrice : null,
         exchangeUnitPrice,
         sources,
-        note: exchangeUnitPrice === null
-          ? null
-          : useExchange
-            ? `按${sourceText}兑换${outputCount}个${name}，当前比直接购买便宜`
-            : `当前直接购买不贵于${sourceText}兑换${outputCount}个${name}`
+        note: exchangeOnly
+          ? `${name}只能兑换：${sourceText}兑换${outputCount}个；Moligod显示价为折算后的单个兑换成本`
+          : exchangeUnitPrice === null
+            ? null
+            : useExchange
+              ? `按${sourceText}兑换${outputCount}个${name}，当前比直接购买便宜`
+              : `当前直接购买不贵于${sourceText}兑换${outputCount}个${name}`
       };
       return {
         ...material,
-        current_price: useExchange ? exchangeUnitPrice : directUnitPrice,
-        market_current_price: Number.isFinite(directUnitPrice) ? directUnitPrice : null,
+        current_price: effectiveUnitPrice,
+        market_current_price: Number.isFinite(moligodUnitPrice) ? moligodUnitPrice : null,
         acquisition
       };
     });
