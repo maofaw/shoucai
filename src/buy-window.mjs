@@ -5,6 +5,7 @@ const DAY_MS = 86_400_000;
 const WEEK_MS = 7 * DAY_MS;
 const WEEKDAYS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
 const NO_RELIABLE_WINDOW = '本周没有可靠的首选时段，达到好价就买';
+const PLAN_VERSION = 'buy-v2-focus-materials';
 
 /**
  * Builds one weekly shopping plan for the materials used by all selected stations.
@@ -16,7 +17,8 @@ export function buildWeeklyBuyAdvice({
   historiesByMaterial = {},
   now = new Date(),
   budgetPerAccount = null,
-  previousPlan = null
+  previousPlan = null,
+  materialFilter = {}
 } = {}) {
   const asOf = new Date(now);
   if (Number.isNaN(asOf.getTime())) throw new TypeError('now 必须是有效日期');
@@ -28,7 +30,19 @@ export function buildWeeklyBuyAdvice({
   const histories = new Map(Object.entries(historiesByMaterial).map(([name, rows]) => [
     normalizeName(name), Array.isArray(rows) ? rows : []
   ]));
-  const basketSeries = combineHistories(materialDemand.map(material => ({
+  const totalExpectedCost7Days = materialDemand.every(material => Number.isFinite(material.currentPrice))
+    ? materialDemand.reduce((sum, material) => sum + material.expectedPerAccount7Days * material.currentPrice, 0)
+    : null;
+  const materialProfiles = materialDemand.map(material => profileMaterial(
+    material,
+    histories.get(material.key) ?? [],
+    asOf,
+    totalExpectedCost7Days,
+    materialFilter
+  ));
+  const focusDemand = materialProfiles.filter(profile => !profile.ignored).map(profile => profile.material);
+  const basketMaterials = focusDemand.length > 0 ? focusDemand : materialDemand;
+  const basketSeries = combineHistories(basketMaterials.map(material => ({
     name: material.name,
     count: material.expectedPerAccount7Days,
     rows: histories.get(material.key) ?? []
@@ -38,9 +52,9 @@ export function buildWeeklyBuyAdvice({
   const historicalPlan = reusableWindowPlan(previousPlan, weekKey, recipeSignature)
     ?? rankWeeklyWindows(shoppingSeries, weekStart);
 
-  const currentBasketCostPerAccount7Days = materialDemand.length > 0
-    && materialDemand.every(material => Number.isFinite(material.currentPrice))
-    ? materialDemand.reduce((total, material) => total + material.expectedPerAccount7Days * material.currentPrice, 0)
+  const currentBasketCostPerAccount7Days = basketMaterials.length > 0
+    && basketMaterials.every(material => Number.isFinite(material.currentPrice))
+    ? basketMaterials.reduce((total, material) => total + material.expectedPerAccount7Days * material.currentPrice, 0)
     : null;
   const purchaseCostPerAccount7Days = purchaseCost(materialDemand, 7);
   const purchaseCostPerAccount14Days = purchaseCost(materialDemand, 14);
@@ -108,7 +122,8 @@ export function buildWeeklyBuyAdvice({
     }
   }
 
-  const materials = materialDemand.map(material => materialAdvice(material, histories.get(material.key) ?? [], asOf));
+  const materials = materialProfiles.map(profile => materialAdvice(profile));
+  const ignoredMaterials = materials.filter(material => material.ignored);
   const estimatedPerAccountCost = suggestedDays === 30
     ? purchaseCostPerAccount30Days
     : suggestedDays === 14 ? purchaseCostPerAccount14Days
@@ -131,6 +146,10 @@ export function buildWeeklyBuyAdvice({
     purchaseCostPerAccount14Days,
     purchaseCostPerAccount30Days,
     materials,
+    ignoredMaterialsCount: ignoredMaterials.length,
+    ignoredMaterialNames: ignoredMaterials.map(material => material.name),
+    ignoredMaterialsCostPerAccount7Days: ignoredMaterials.reduce((sum, material) =>
+      sum + Number(material.currentPrice ?? 0) * Number(material.perAccount7Days ?? 0), 0),
     evidence: historicalPlan.evidence
   };
 }
@@ -182,7 +201,7 @@ function plannedWeeklyRuns(place, hours) {
 }
 
 function buildRecipeSignature(recommendations) {
-  return recommendations.map(item => {
+  const recipes = recommendations.map(item => {
     const selected = item.cashSelected ?? item.selected;
     if (!selected) return `${item.place}:none`;
     const materials = (selected.recipe?.materials ?? [])
@@ -190,6 +209,7 @@ function buildRecipeSignature(recommendations) {
       .sort().join(',');
     return `${item.place}:${selected.recipe?.id ?? normalizeName(selected.name)}:${selected.hours}:${materials}`;
   }).sort().join('|');
+  return `${PLAN_VERSION}|${recipes}`;
 }
 
 function rankWeeklyWindows(series, weekStart) {
@@ -296,15 +316,35 @@ function reusableWindowPlan(previousPlan, weekKey, recipeSignature) {
   };
 }
 
-function materialAdvice(material, rows, now) {
+function profileMaterial(material, rows, now, totalExpectedCost7Days, options = {}) {
   const points = combineHistories([{ count: 1, rows }], now)
     .filter(point => point.date >= new Date(now.getTime() - 30 * DAY_MS) && point.date <= now);
   const values = points.map(point => point.value).filter(Number.isFinite).sort((a, b) => a - b);
+  const minimumSamples = Number(options.minimumSamples ?? 336);
+  const maxWeeklyCostShare = Number(options.maxWeeklyCostShare ?? 0.03);
+  const maxPriceSpread = Number(options.maxPriceSpread ?? 0.08);
+  const medianPrice = values.length >= minimumSamples ? percentile(values, 0.50) : null;
+  const p10 = values.length >= minimumSamples ? percentile(values, 0.10) : null;
+  const p90 = values.length >= minimumSamples ? percentile(values, 0.90) : null;
+  const priceSpread = medianPrice > 0 ? (p90 - p10) / medianPrice : null;
+  const weeklyCostShare = totalExpectedCost7Days > 0 && Number.isFinite(material.currentPrice)
+    ? material.expectedPerAccount7Days * material.currentPrice / totalExpectedCost7Days
+    : null;
+  const ignored = values.length >= minimumSamples
+    && weeklyCostShare !== null && weeklyCostShare <= maxWeeklyCostShare
+    && priceSpread !== null && priceSpread <= maxPriceSpread;
+  return { material, values, weeklyCostShare, priceSpread, ignored };
+}
+
+function materialAdvice(profile) {
+  const { material, values, weeklyCostShare, priceSpread, ignored } = profile;
   const lowPrice = values.length >= 72 ? percentile(values, 0.30) : null;
   const targetPrice = lowPrice;
-  let action = 'unknown';
-  let reason = '历史价格样本不足，暂时没有可靠的买入价';
-  if (targetPrice !== null && Number.isFinite(material.currentPrice)) {
+  let action = ignored ? 'ignored' : 'unknown';
+  let reason = ignored
+    ? '单号一周成本占比很低且价格稳定，不作为重点统计'
+    : '历史价格样本不足，暂时没有可靠的买入价';
+  if (!ignored && targetPrice !== null && Number.isFinite(material.currentPrice)) {
     action = material.currentPrice <= targetPrice ? 'buy' : 'wait';
     reason = action === 'buy'
       ? `现价已到建议买入价，可先买这项材料`
@@ -318,6 +358,9 @@ function materialAdvice(material, rows, now) {
     perAccount14Days: material.perAccount14Days,
     perAccount30Days: material.perAccount30Days,
     sampleCount: values.length,
+    weeklyCostSharePercent: weeklyCostShare === null ? null : round(weeklyCostShare * 100, 2),
+    priceSpreadPercent: priceSpread === null ? null : round(priceSpread * 100, 1),
+    ignored,
     action,
     reason
   };

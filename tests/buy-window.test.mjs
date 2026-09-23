@@ -167,3 +167,23 @@ test('an exceptional 30-day low suggests one month and exposes month quantities'
   assert.equal(plan.estimatedPerAccountCost, plan.purchaseCostPerAccount30Days);
   assert.equal(plan.materials.find(item => item.name === '材料A').perAccount30Days, 150);
 });
+
+test('cheap stable materials stay in budget but do not dilute timing or the focus list', () => {
+  const selected = recommendations();
+  selected[0].selected.recipe.materials.push({
+    display_name: '便宜稳定材料', required_count: 1, current_price: 1
+  });
+  const histories = threeWeekHistory();
+  histories.便宜稳定材料 = histories.材料A.map(row => ({ ...row, avg: 1 }));
+  const plan = buildWeeklyBuyAdvice({
+    recommendations: selected,
+    historiesByMaterial: histories,
+    now: NOW
+  });
+  const ignored = plan.materials.find(item => item.name === '便宜稳定材料');
+  assert.equal(ignored.ignored, true);
+  assert.equal(ignored.action, 'ignored');
+  assert.equal(plan.ignoredMaterialsCount, 1);
+  assert.equal(plan.currentBasketCostPerAccount7Days, 3710);
+  assert.equal(plan.purchaseCostPerAccount7Days, 3798);
+});

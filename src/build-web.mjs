@@ -38,7 +38,8 @@ const buyPlan = buildWeeklyBuyAdvice({
   recommendations,
   historiesByMaterial,
   budgetPerAccount: Number(config.dashboard?.defaultBuyBudgetPerAccount ?? 10_000_000),
-  previousPlan
+  previousPlan,
+  materialFilter: config.buyMaterialFilter
 });
 const dashboard = buildDashboardData({ snapshot, metadata, recommendations, buyPlan, config });
 fs.mkdirSync(path.dirname(destination), { recursive: true });

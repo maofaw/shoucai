@@ -25,6 +25,11 @@
     { "maxPercentile": 15, "days": 14, "label": "深度低价" },
     { "maxPercentile": 30, "days": 7, "label": "普通低价" }
   ],
+  "buyMaterialFilter": {
+    "minimumSamples": 336,
+    "maxWeeklyCostShare": 0.03,
+    "maxPriceSpread": 0.08
+  },
   "placeRules": {
     "workbench": {
       "label": "工作台",

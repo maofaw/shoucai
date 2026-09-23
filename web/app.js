@@ -167,21 +167,27 @@ function windowHtml(kind, value) {
 
 function renderMaterials(plan, days, suggested) {
   const budget = state.settings.budgetWan * 10_000;
-  const materials = plan?.materials || [];
+  const allMaterials = plan?.materials || [];
+  const materials = allMaterials.filter(material => !material.ignored);
+  const ignoredMaterials = allMaterials.filter(material => material.ignored);
   const unit = days === 30 ? 'perAccount30Days' : days === 14 ? 'perAccount14Days' : 'perAccount7Days';
-  const knownCosts = materials.filter(m => numberOrNull(m.currentPrice) != null && numberOrNull(m[unit]) != null);
-  const cost = materials.length && knownCosts.length === materials.length
-    ? materials.reduce((sum, m) => sum + Number(m.currentPrice) * Number(m[unit]), 0)
+  const knownCosts = allMaterials.filter(m => numberOrNull(m.currentPrice) != null && numberOrNull(m[unit]) != null);
+  const cost = allMaterials.length && knownCosts.length === allMaterials.length
+    ? allMaterials.reduce((sum, m) => sum + Number(m.currentPrice) * Number(m[unit]), 0)
     : null;
   const explanation = state.selectedDays === 'auto' ? '自动建议买' + suggested + '天；可手动改' : '按你选的' + days + '天计算';
   setText('#buyBudget', explanation + '。单号预计花费 ' + (cost == null ? '待更新' : moneyWan(cost)) +
     '，你的单号预算 ' + moneyWan(budget) +
     (cost != null && cost > budget ? '，还差 ' + moneyWan(cost - budget) : '') + '。');
-  if (!materials.length) {
+  if (!allMaterials.length) {
     document.querySelector('#buyList').innerHTML = '<div class="empty-state">材料单价和数量暂未拿到可靠数据，先不列出不准确的采购清单。</div>';
     return;
   }
-  document.querySelector('#buyList').innerHTML = materials.map(material => {
+  const ignoredNote = ignoredMaterials.length
+    ? '<div class="ignored-material-note"><strong>已省略 ' + ignoredMaterials.length + ' 种便宜稳定材料</strong><p>' +
+      escapeHtml(ignoredMaterials.map(material => material.name).join('、')) + '仍计入制造成本和总预算，但不再占用重点买料清单。</p></div>'
+    : '';
+  const cards = materials.map(material => {
     const count = numberOrNull(material[unit]);
     const price = numberOrNull(material.currentPrice);
     const target = numberOrNull(material.targetPrice);
@@ -192,6 +198,7 @@ function renderMaterials(plan, days, suggested) {
       '<div class="material-metrics"><div><span>当前单价</span><strong>' + (price == null ? '--' : nf.format(price)) + '</strong></div><div><span>建议最高买价</span><strong>' + (target == null ? '--' : nf.format(target)) + '</strong></div><div><span>单号买' + days + '天</span><strong>' + (count == null ? '--' : nf.format(count) + '个') + '</strong></div></div>' +
       '</article>';
   }).join('');
+  document.querySelector('#buyList').innerHTML = ignoredNote + (cards || '<div class="empty-state">当前材料都属于便宜稳定项，无需专门盯价。</div>');
 }
 
 function renderSell() {
