@@ -1,7 +1,7 @@
 {
-  "schemaVersion": 1,
-  "generatedAt": "2026-09-22T15:29:44.311Z",
-  "builtAt": "2026-09-22T15:29:44.955Z",
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-23T10:59:20.206Z",
+  "builtAt": "2026-09-23T10:59:35.872Z",
   "staleAfterHours": 4,
   "source": {
     "name": "Moligod",
@@ -10,6 +10,9 @@
   },
   "defaults": {
     "accounts": 28,
+    "sharedAccounts": 10,
+    "ownerSharePercent": 80,
+    "buyBudgetPerAccount": 10000000,
     "haffPerCnyWan": 52
   },
   "plan": {
@@ -19,13 +22,34 @@
       {
         "place": "workbench",
         "label": "工作台",
-        "main": "4.6 x 30mm AP ST",
+        "main": ".45 ACP Super​",
         "hours": 8,
-        "backup": ".45 ACP Super​",
+        "backup": "5.45x39mm BS",
         "backupHours": 8,
-        "backupDeltaPercent": -5.3,
-        "reason": "常用配方当前仍是最优或接近最优",
-        "weeklyRuns": 18
+        "backupDeltaPercent": -4.4,
+        "reason": "保守周利润比常用配方高16.5%，下一轮建议换",
+        "weeklyRuns": 17.5,
+        "currentCost": 267205,
+        "fee": 85121,
+        "revenueConservative": 654780,
+        "revenueHigh": 751650,
+        "perRunConservativeProfit": 302454,
+        "perRunHighProfit": 386731,
+        "weeklyConservativeProfit": 5292938,
+        "weeklyHighProfit": 6767784,
+        "provisional": false,
+        "evidence": {
+          "source": "Moligod 每小时历史行情（周六、周日）",
+          "provisional": false,
+          "sampleCount": 144,
+          "observedWeeks": 3,
+          "lookbackWeeks": 4,
+          "conservativeUnitPrice": 5456.5,
+          "highUnitPrice": 6263.75,
+          "currentUnitPrice": 5132,
+          "lowerPercentile": 0.25,
+          "higherPercentile": 0.75
+        }
       },
       {
         "place": "tech",
@@ -34,59 +58,287 @@
         "hours": 16,
         "backup": "PSG-1射手步枪",
         "backupHours": 16,
-        "backupDeltaPercent": -30.5,
-        "reason": "常用配方当前仍是最优或接近最优",
-        "weeklyRuns": 9
+        "backupDeltaPercent": -25.3,
+        "reason": "常用配方的保守周利润仍然领先",
+        "weeklyRuns": 9,
+        "currentCost": 56523,
+        "fee": 14265,
+        "revenueConservative": 109730,
+        "revenueHigh": 116190,
+        "perRunConservativeProfit": 38942,
+        "perRunHighProfit": 44562,
+        "weeklyConservativeProfit": 350481,
+        "weeklyHighProfit": 401061,
+        "provisional": false,
+        "evidence": {
+          "source": "Moligod 每小时历史行情（周六、周日）",
+          "provisional": false,
+          "sampleCount": 192,
+          "observedWeeks": 4,
+          "lookbackWeeks": 4,
+          "conservativeUnitPrice": 109730.25,
+          "highUnitPrice": 116190,
+          "currentUnitPrice": 116100,
+          "lowerPercentile": 0.25,
+          "higherPercentile": 0.75
+        }
       },
       {
         "place": "pharmacy",
         "label": "制药台",
-        "main": "精密护甲维修包",
+        "main": "感知强化剂",
         "hours": 8,
-        "backup": "高级护甲维修组合",
+        "backup": "体能强化剂",
         "backupHours": 8,
-        "backupDeltaPercent": -10.8,
-        "reason": "常用配方当前仍是最优或接近最优",
-        "weeklyRuns": 18
+        "backupDeltaPercent": -4,
+        "reason": "常用配方目前亏损，下一轮改造正利润配方",
+        "weeklyRuns": 17.5,
+        "currentCost": 13609,
+        "fee": 6328,
+        "revenueConservative": 48678,
+        "revenueHigh": 56485,
+        "perRunConservativeProfit": 28741,
+        "perRunHighProfit": 35533,
+        "weeklyConservativeProfit": 502961,
+        "weeklyHighProfit": 621830,
+        "provisional": false,
+        "evidence": {
+          "source": "Moligod 每小时历史行情（周六、周日）",
+          "provisional": false,
+          "sampleCount": 192,
+          "observedWeeks": 4,
+          "lookbackWeeks": 4,
+          "conservativeUnitPrice": 48677.75,
+          "highUnitPrice": 56485.25,
+          "currentUnitPrice": 60000,
+          "lowerPercentile": 0.25,
+          "higherPercentile": 0.75
+        }
       },
       {
         "place": "armory",
         "label": "防具台",
         "main": "H09 防暴头盔（全新）",
         "hours": 8,
-        "backup": "重型突击背心（全新）",
+        "backup": "精英防弹背心（全新）",
         "backupHours": 8,
-        "backupDeltaPercent": 1.9,
-        "reason": "其他配方未比常用配方高出10%",
-        "weeklyRuns": 18
+        "backupDeltaPercent": 2.2,
+        "reason": "其他配方的保守周利润没有高出10%，继续造常用配方",
+        "weeklyRuns": 17.5,
+        "currentCost": 104015,
+        "fee": 41708,
+        "revenueConservative": 320832,
+        "revenueHigh": 344711,
+        "perRunConservativeProfit": 175109,
+        "perRunHighProfit": 195884,
+        "weeklyConservativeProfit": 3064405,
+        "weeklyHighProfit": 3427962,
+        "provisional": false,
+        "evidence": {
+          "source": "Moligod 每小时历史行情（周六、周日）",
+          "provisional": false,
+          "sampleCount": 192,
+          "observedWeeks": 4,
+          "lookbackWeeks": 4,
+          "conservativeUnitPrice": 320832,
+          "highUnitPrice": 344711,
+          "currentUnitPrice": 344711,
+          "lowerPercentile": 0.25,
+          "higherPercentile": 0.75
+        }
       }
     ],
     "profit": {
+      "conservativeWeeklyPerAccount": 9210785,
+      "conservativeDailyPerAccount": 1315826,
+      "highWeeklyPerAccount": 11218637,
+      "highDailyPerAccount": 1602662,
       "stockedWeeklyPerAccount": null,
       "stockedDailyPerAccount": null,
-      "stockedStatus": "等待首次买入信号",
-      "noStockWeeklyPerAccount": 10836180,
-      "noStockDailyPerAccount": 1548026,
-      "provisional": true
+      "stockedStatus": "新版按当前材料价统一估算，不读取既有库存",
+      "noStockWeeklyPerAccount": 9210785,
+      "noStockDailyPerAccount": 1315826,
+      "basis": "材料按当前价，成品按最近4个周末的偏低价与较高常见价估算",
+      "provisional": false
+    }
+  },
+  "buyPlan": {
+    "status": "ready",
+    "weekKey": "2026-09-21",
+    "recipeSignature": "armory:910:8:原木木板:2,芳纶纤维:1,钛合金:2|pharmacy:876:8:含氟牙膏:2,小药瓶:3,酸奶:1|tech:837:16:原木木板:3,工具箱:1,枪械零件:1|workbench:746:8:火药:2,音频播放器:1,高级燃料:2",
+    "primaryWindow": {
+      "label": "周一 02:00–04:00",
+      "weekday": "周一",
+      "startTime": "02:00",
+      "endTime": "04:00",
+      "reason": "最近3周，这段时间整套材料都比各周常见价格低约7.6%，是重复出现的低价时段。",
+      "typicalCostPerAccount7Days": 6406790,
+      "savingPercent": 7.6,
+      "observedWeeks": 3
+    },
+    "backupWindow": {
+      "label": "周日 02:00–04:00",
+      "weekday": "周日",
+      "startTime": "02:00",
+      "endTime": "04:00",
+      "reason": "最近3周，这段时间整套材料都比各周常见价格低约7.4%；若错过首选，可在这里买。与首选的历史成本相差约0.5%。",
+      "typicalCostPerAccount7Days": 6441908,
+      "savingPercent": 7.4,
+      "observedWeeks": 3
+    },
+    "windowMessage": "按最近三个完整自然周的整套材料价格估算，本周首选和备选时段已固定",
+    "nowAction": "wait",
+    "nowReason": "整套材料还没有达到合适价格，先关注首选买料时段",
+    "suggestedDays": 0,
+    "estimatedPerAccountCost": null,
+    "budgetGapPerAccount": null,
+    "currentBasketCostPerAccount7Days": 7243214.5,
+    "purchaseCostPerAccount7Days": 7435629,
+    "purchaseCostPerAccount14Days": 14486429,
+    "purchaseCostPerAccount30Days": 31066572,
+    "materials": [
+      {
+        "name": "芳纶纤维",
+        "currentPrice": 24595,
+        "targetPrice": 23381,
+        "perAccount7Days": 18,
+        "perAccount14Days": 35,
+        "perAccount30Days": 75,
+        "sampleCount": 692,
+        "action": "wait",
+        "reason": "现价还高于建议买入价，适合继续等"
+      },
+      {
+        "name": "高级燃料",
+        "currentPrice": 104791,
+        "targetPrice": 95438,
+        "perAccount7Days": 36,
+        "perAccount14Days": 70,
+        "perAccount30Days": 150,
+        "sampleCount": 713,
+        "action": "wait",
+        "reason": "现价还高于建议买入价，适合继续等"
+      },
+      {
+        "name": "工具箱",
+        "currentPrice": 25614,
+        "targetPrice": 25614,
+        "perAccount7Days": 9,
+        "perAccount14Days": 18,
+        "perAccount30Days": 39,
+        "sampleCount": 713,
+        "action": "buy",
+        "reason": "现价已到建议买入价，可先买这项材料"
+      },
+      {
+        "name": "含氟牙膏",
+        "currentPrice": 2264,
+        "targetPrice": 2264,
+        "perAccount7Days": 36,
+        "perAccount14Days": 70,
+        "perAccount30Days": 150,
+        "sampleCount": 692,
+        "action": "buy",
+        "reason": "现价已到建议买入价，可先买这项材料"
+      },
+      {
+        "name": "火药",
+        "currentPrice": 23250,
+        "targetPrice": 20702,
+        "perAccount7Days": 36,
+        "perAccount14Days": 70,
+        "perAccount30Days": 150,
+        "sampleCount": 692,
+        "action": "wait",
+        "reason": "现价还高于建议买入价，适合继续等"
+      },
+      {
+        "name": "枪械零件",
+        "currentPrice": 18309,
+        "targetPrice": 17517,
+        "perAccount7Days": 9,
+        "perAccount14Days": 18,
+        "perAccount30Days": 39,
+        "sampleCount": 692,
+        "action": "wait",
+        "reason": "现价还高于建议买入价，适合继续等"
+      },
+      {
+        "name": "酸奶",
+        "currentPrice": 945,
+        "targetPrice": 945,
+        "perAccount7Days": 18,
+        "perAccount14Days": 35,
+        "perAccount30Days": 75,
+        "sampleCount": 692,
+        "action": "buy",
+        "reason": "现价已到建议买入价，可先买这项材料"
+      },
+      {
+        "name": "钛合金",
+        "currentPrice": 35510,
+        "targetPrice": 29229,
+        "perAccount7Days": 36,
+        "perAccount14Days": 70,
+        "perAccount30Days": 150,
+        "sampleCount": 713,
+        "action": "wait",
+        "reason": "现价还高于建议买入价，适合继续等"
+      },
+      {
+        "name": "小药瓶",
+        "currentPrice": 2712,
+        "targetPrice": 2665,
+        "perAccount7Days": 54,
+        "perAccount14Days": 105,
+        "perAccount30Days": 225,
+        "sampleCount": 692,
+        "action": "wait",
+        "reason": "现价还高于建议买入价，适合继续等"
+      },
+      {
+        "name": "音频播放器",
+        "currentPrice": 11123,
+        "targetPrice": 10723,
+        "perAccount7Days": 18,
+        "perAccount14Days": 35,
+        "perAccount30Days": 75,
+        "sampleCount": 692,
+        "action": "wait",
+        "reason": "现价还高于建议买入价，适合继续等"
+      },
+      {
+        "name": "原木木板",
+        "currentPrice": 4200,
+        "targetPrice": 4025,
+        "perAccount7Days": 63,
+        "perAccount14Days": 124,
+        "perAccount30Days": 267,
+        "sampleCount": 692,
+        "action": "wait",
+        "reason": "现价还高于建议买入价，适合继续等"
+      }
+    ],
+    "evidence": {
+      "sampleCount": 484,
+      "weekCount": 3,
+      "lookbackWeeks": 3,
+      "through": "2026-09-20"
     }
   },
   "buys": [
     {
       "place": "workbench",
       "label": "工作台",
-      "recipe": "4.6 x 30mm AP ST",
+      "recipe": ".45 ACP Super​",
       "action": "small-buy",
       "actionLabel": "只补生产刚需",
       "tier": null,
       "days": 0,
-      "reason": "整套材料价格处于近30天正常偏低区，只补约3天",
-      "currentCost": 251595,
-      "currentPercentile": 44.6,
-      "thresholds": {
-        "days30": 242496,
-        "days14": 243913,
-        "days7": 248676
-      },
+      "reason": "本地历史样本不足（0条，跨度0.0小时），只补1天，不大囤",
+      "currentCost": 267205,
+      "currentPercentile": null,
+      "thresholds": null,
       "perAccountBudget": null,
       "perAccountMaterials": []
     },
@@ -94,37 +346,29 @@
       "place": "tech",
       "label": "技术中心",
       "recipe": "SVD狙击步枪",
-      "action": "wait",
-      "actionLabel": "等待更低价格",
+      "action": "small-buy",
+      "actionLabel": "只补生产刚需",
       "tier": null,
       "days": 0,
-      "reason": "整套材料处于近30天约97%分位，偏贵，继续等待",
+      "reason": "本地历史样本不足（0条，跨度0.0小时），只补1天，不大囤",
       "currentCost": 56523,
-      "currentPercentile": 96.7,
-      "thresholds": {
-        "days30": 54688,
-        "days14": 54688,
-        "days7": 55307
-      },
+      "currentPercentile": null,
+      "thresholds": null,
       "perAccountBudget": null,
       "perAccountMaterials": []
     },
     {
       "place": "pharmacy",
       "label": "制药台",
-      "recipe": "精密护甲维修包",
-      "action": "wait",
-      "actionLabel": "等待更低价格",
+      "recipe": "感知强化剂",
+      "action": "small-buy",
+      "actionLabel": "只补生产刚需",
       "tier": null,
       "days": 0,
-      "reason": "整套材料处于近30天约67%分位，偏贵，继续等待",
-      "currentCost": 143066,
-      "currentPercentile": 66.8,
-      "thresholds": {
-        "days30": 108566,
-        "days14": 119280,
-        "days7": 127006
-      },
+      "reason": "本地历史样本不足（0条，跨度0.0小时），只补1天，不大囤",
+      "currentCost": 13609,
+      "currentPercentile": null,
+      "thresholds": null,
       "perAccountBudget": null,
       "perAccountMaterials": []
     },
@@ -132,18 +376,14 @@
       "place": "armory",
       "label": "防具台",
       "recipe": "H09 防暴头盔（全新）",
-      "action": "wait",
-      "actionLabel": "等待更低价格",
+      "action": "small-buy",
+      "actionLabel": "只补生产刚需",
       "tier": null,
       "days": 0,
-      "reason": "整套材料处于近30天约74%分位，偏贵，继续等待",
-      "currentCost": 96785,
-      "currentPercentile": 74.1,
-      "thresholds": {
-        "days30": 86981,
-        "days14": 88119,
-        "days7": 89893
-      },
+      "reason": "本地历史样本不足（0条，跨度0.0小时），只补1天，不大囤",
+      "currentCost": 104015,
+      "currentPercentile": null,
+      "thresholds": null,
       "perAccountBudget": null,
       "perAccountMaterials": []
     }
@@ -157,15 +397,11 @@
       30,
       10
     ],
-    "basis": "最近4个周末价格样本；第一版样本不足时沿用周六21:30"
+    "basis": "暂未形成稳定的清仓时段模型，当前沿用你的周末集中出售习惯：周六21:30"
   },
   "harvest": {
     "cycleHours": 8,
     "managedInBrowser": true
   },
-  "market": {
-    "bestWeekday": "周日",
-    "bestHour": 4,
-    "bestPoweredHour": 15
-  }
+  "market": null
 }

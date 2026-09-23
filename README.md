@@ -1,6 +1,6 @@
 # 三角洲收菜助手
 
-低频读取 moligod 特勤处公开市场快照，保存本地历史并生成制造、买料和资金建议。程序只在计划时间启动，完成后立即退出，不常驻内存。
+低频读取 moligod 特勤处公开市场快照，生成制造、买料和预计利润建议。公开网页部署在 [三角洲收菜助手](https://maofaw.github.io/shoucai/)；构建任务按计划运行，平时不占用本机内存。
 
 项目同时包含手机优先的静态看板：
 
@@ -8,9 +8,11 @@
 npm run serve:web
 ```
 
-浏览器打开 `http://127.0.0.1:4173`；管理模式在地址末尾加 `#manage=本机测试`。网页目录为 `web/`，GitHub Pages工作流位于 `.github/workflows/pages.yml`。
+浏览器打开 `http://127.0.0.1:4173`。网页目录为 `web/`，GitHub Pages 工作流位于 `.github/workflows/pages.yml`。
 
-公开网站构建只读取 `config.site.json`。本机运营配置 `config.json`、SQLite、日志、报告和Obsidian笔记均被 `.gitignore` 排除，不会上传到公开仓库。
+网页打开即显示四台当前推荐、主选与备选理由、未来7天保守和较高两档预计到手利润，以及一行买料结论。设置页可改总账号数、分成账号数、本人分成比例、哈夫币兑换人民币比例和单号买料预算。普通链接可点击“本轮已完成”，按实际完成时间显示8小时后的下一次收菜；时间只保存在当前浏览器，不会跨设备同步。历史行情证据不足时，页面会标明“临时估算”或“本周没有可靠的首选时段”，不承诺收益。
+
+公开网站构建只读取 `config.site.json`。本机运营配置 `config.json`、SQLite、日志、报告和 Obsidian 笔记均被 `.gitignore` 排除，不会上传到公开仓库。云端状态同步和飞书主动通知尚未部署。
 
 ## 默认运行时间
 
@@ -40,10 +42,10 @@ npm run task:install
 
 编辑 `config.json`：
 
-- `historicalStock.enabled`：金甲修旧低价材料用完后改为 `false`。
+- `historicalStock.enabled`：仅用于本机旧版运营报告；公开网站不按既有库存核算。
 - `balancePerAccount`：单号可用哈夫币变化时更新。
 - `haffPerCny`：现实租赁比例变化时更新。
-- `switchThreshold`：默认新配方的整周预计净利润高出5%才允许切换。
+- `switchThreshold`：默认新配方的保守整周预计净利润高出5%才建议下一轮切换；H09另有稳定性门槛。
 - `switchBasis`：当前固定为 `weeklyProjectedProfit`，按一周生产量比较，不按单轮或单日利润比较。
 
 ## 卸载计划任务

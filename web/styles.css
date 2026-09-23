@@ -142,3 +142,79 @@ h2 { font-size: 22px; line-height: 1.3; }
   .bottom-nav { left: 50%; right: auto; bottom: 20px; width: 440px; transform: translateX(-50%); border: 1px solid var(--border); border-radius: 18px; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
+
+/* 第二版：先给可执行的制造与买料结论，再给利润。 */
+.section-heading--sub { margin-top: 28px; }
+.section-heading h2:focus { outline: none; }
+.empty-state { padding: 20px; color: var(--muted); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+.recipe-list { margin-top: 0; }
+.recipe-card { padding: 16px; }
+.recipe-card__top { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.recipe-main { margin: 8px 0 12px; line-height: 1.4; overflow-wrap: anywhere; }
+.recipe-profit { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding: 12px 14px; background: var(--surface-2); border-radius: 11px; }
+.recipe-profit span { color: var(--muted); font-size: 13px; }
+.recipe-profit strong { color: var(--success); font-size: 22px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.recipe-card .reason { margin-top: 12px; color: var(--text); font-size: 14px; }
+.recipe-card .backup-row { margin-top: 10px; padding-top: 10px; display: block; color: var(--muted); line-height: 1.5; }
+.recipe-details { margin-top: 10px; border-top: 1px solid var(--border); }
+.recipe-details summary { min-height: 48px; display: flex; align-items: center; color: var(--primary-strong); font-size: 14px; font-weight: 700; cursor: pointer; list-style-position: inside; }
+.recipe-details summary:focus-visible { outline: 3px solid var(--primary); outline-offset: 2px; border-radius: 7px; }
+.detail-list { display: grid; gap: 8px; padding: 0 2px 10px; }
+.detail-list > div { display: flex; justify-content: space-between; gap: 12px; color: var(--muted); font-size: 13px; }
+.detail-list strong { color: var(--text); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.detail-note { color: var(--faint); font-size: 12px; }
+
+.buy-shortcut { width: 100%; min-height: 72px; display: flex; align-items: center; gap: 12px; margin-top: 16px; padding: 12px 15px; text-align: left; color: var(--text); background: #12283e; border: 1px solid #35628d; border-radius: var(--radius); cursor: pointer; }
+.buy-shortcut:hover { background: #18334e; }
+.buy-shortcut:active { opacity: .8; }
+.buy-shortcut__icon { width: 42px; height: 42px; flex: 0 0 42px; display: grid; place-items: center; color: var(--primary-strong); background: rgba(91,167,255,.12); border-radius: 12px; }
+.buy-shortcut__copy { min-width: 0; flex: 1; }
+.buy-shortcut__copy strong, .buy-shortcut__copy small { display: block; }
+.buy-shortcut__copy strong { font-size: 15px; }
+.buy-shortcut__copy small { margin-top: 3px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.chevron { font-size: 28px; color: var(--primary-strong); }
+.buy-shortcut:focus-visible, .days-option:focus-visible, .secondary-button:focus-visible { outline: 3px solid var(--primary); outline-offset: 3px; }
+
+.profit-grid { margin-top: 0; }
+.profit-card { min-width: 0; min-height: 136px; display: flex; flex-direction: column; align-items: flex-start; padding: 16px; }
+.profit-card__label { color: var(--muted); font-size: 14px; font-weight: 700; }
+.profit-card__value { display: block; margin-top: 6px; color: var(--text); font-size: clamp(26px, 7vw, 38px); font-variant-numeric: tabular-nums; line-height: 1.2; white-space: nowrap; }
+.profit-card--accent .profit-card__value { color: var(--success); }
+.profit-card__cny { margin-top: auto; padding-top: 6px; color: var(--muted); font-size: 14px; }
+.profit-basis { margin: 12px 2px 0; color: var(--muted); font-size: 13px; line-height: 1.55; }
+.daily-summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin-top: 12px; padding: 14px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; }
+.daily-summary span { color: var(--muted); font-size: 13px; }
+.daily-summary strong { font-size: 18px; font-variant-numeric: tabular-nums; }
+.daily-summary small { width: 100%; color: var(--faint); font-size: 12px; }
+
+.timing-card, .buy-now-card, .material-card { padding: 16px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); }
+.timing-card > strong, .buy-now-card > strong { display: block; margin: 8px 0 4px; font-size: 19px; }
+.timing-card > p, .buy-now-card > p { color: var(--muted); font-size: 14px; line-height: 1.6; }
+.card-kicker { display: block; color: var(--primary-strong); font-size: 12px; font-weight: 800; }
+.window-row { display: flex; align-items: flex-start; gap: 10px; padding: 14px 0; }
+.window-row + .window-row { border-top: 1px solid var(--border); }
+.window-row strong { font-size: 18px; }
+.window-row p { margin-top: 4px; color: var(--muted); font-size: 14px; line-height: 1.55; }
+.window-badge { flex: 0 0 auto; padding: 5px 9px; border-radius: 8px; color: var(--bg); background: var(--primary); font-size: 12px; font-weight: 800; }
+.window-row + .window-row .window-badge { color: var(--text); background: var(--surface-3); }
+.evidence-note { margin-top: 4px; padding-top: 10px; border-top: 1px solid var(--border); color: var(--faint) !important; font-size: 12px !important; }
+.buy-now-card { margin-top: 12px; }
+.buy-now-card.is-buy { border-color: rgba(96,214,167,.5); background: #12332e; }
+.buy-now-card.is-buy strong { color: var(--success); }
+.days-select { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; padding: 5px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+.days-option { min-height: 44px; padding: 7px 5px; color: var(--muted); background: transparent; border: 0; border-radius: 9px; font-size: 14px; font-weight: 700; cursor: pointer; }
+.days-option.is-active { color: var(--bg); background: var(--primary); }
+#buyBudget { margin: 12px 2px 0; line-height: 1.6; }
+.buy-list { margin-top: 14px; }
+.material-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; }
+.material-head strong { font-size: 17px; overflow-wrap: anywhere; }
+.material-action { padding: 5px 9px; border-radius: 999px; color: var(--warning); background: rgba(255,199,102,.1); font-size: 12px; white-space: nowrap; }
+.material-action.is-buy { color: var(--success); background: rgba(96,214,167,.12); }
+.material-reason { margin-top: 8px; color: var(--muted); font-size: 13px; line-height: 1.55; }
+.material-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 13px; padding-top: 12px; border-top: 1px solid var(--border); }
+.material-metrics span, .material-metrics strong { display: block; }
+.material-metrics span { color: var(--faint); font-size: 12px; line-height: 1.4; }
+.material-metrics strong { margin-top: 4px; font-size: 15px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.form-error { padding: 9px 11px; color: #ffe4e5; background: #56252a; border: 1px solid var(--danger); border-radius: 8px; }
+.secondary-button { width: 100%; min-height: 48px; margin-top: 14px; color: var(--text); background: var(--surface-3); border: 1px solid var(--border); border-radius: 11px; font-weight: 700; cursor: pointer; }
+@media (max-width: 380px) { .app-header { align-items: flex-start; } .status-pill { white-space: normal; text-align: center; } .material-metrics strong { font-size: 13px; } }

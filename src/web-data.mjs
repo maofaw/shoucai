@@ -8,11 +8,14 @@ const ACTION_LABELS = {
   error: '暂时无法判断'
 };
 
-export function buildDashboardData({ snapshot, metadata, recommendations, buyTiming, config, generatedAt = new Date(), stockedCosts = {} }) {
+export function buildDashboardData({ snapshot, metadata, recommendations, buyPlan = null, config, generatedAt = new Date() }) {
   const recipeCards = recommendations.map(item => {
-    const main = item.selected;
+    const main = item.cashSelected ?? item.selected;
     if (!main) return { place: item.place, label: item.label, unavailable: true };
-    const backup = item.candidates.find(candidate => candidate.name !== main.name) ?? null;
+    const candidates = item.cashCandidates ?? item.candidates ?? [];
+    const backup = candidates.find(candidate => candidate.name !== main.name) ?? null;
+    const mainWeekly = Number(main.conservativeWeeklyProfit ?? main.weeklyProfit);
+    const backupWeekly = Number(backup?.conservativeWeeklyProfit ?? backup?.weeklyProfit);
     return {
       place: item.place,
       label: item.label,
@@ -20,26 +23,36 @@ export function buildDashboardData({ snapshot, metadata, recommendations, buyTim
       hours: main.hours,
       backup: backup?.name ?? null,
       backupHours: backup?.hours ?? null,
-      backupDeltaPercent: backup && main.weeklyProfit !== 0
-        ? round((backup.weeklyProfit / main.weeklyProfit - 1) * 100, 1)
+      backupDeltaPercent: backup && mainWeekly !== 0
+        ? round((backupWeekly / mainWeekly - 1) * 100, 1)
         : null,
-      reason: item.reason,
-      weeklyRuns: main.runsPerWeek
+      reason: item.cashReason ?? item.reason,
+      weeklyRuns: main.runsPerWeek,
+      currentCost: round(main.currentCost),
+      fee: round(main.conservativeFee ?? main.fee),
+      revenueConservative: round(main.conservativeRevenue ?? main.revenue),
+      revenueHigh: round(main.highRevenue ?? main.revenue),
+      perRunConservativeProfit: round(main.conservativeProfit ?? main.effectiveProfit ?? main.websiteProfit),
+      perRunHighProfit: round(main.highProfit ?? main.effectiveProfit ?? main.websiteProfit),
+      weeklyConservativeProfit: round(mainWeekly),
+      weeklyHighProfit: round(main.highWeeklyProfit ?? main.weeklyProfit),
+      provisional: Boolean(main.priceEvidence?.provisional ?? true),
+      evidence: main.priceEvidence ?? null
     };
   });
 
-  const noStockWeekly = recommendations.reduce((sum, item) => {
+  const conservativeWeekly = recommendations.reduce((sum, item) => {
     const selected = item.cashSelected ?? item.selected;
-    return sum + Number(selected?.weeklyProfit ?? 0);
+    return sum + Number(selected?.conservativeWeeklyProfit ?? selected?.weeklyProfit ?? 0);
   }, 0);
-  const stockedValues = recommendations.map(item => {
-    const selected = item.selected;
-    if (!selected) return null;
-    const savedCost = stockedCosts[String(selected.recipe.id)];
-    if (!Number.isFinite(Number(savedCost))) return null;
-    return (selected.revenue - selected.fee - Number(savedCost)) * selected.runsPerWeek;
-  });
-  const hasCompleteStockedPlan = stockedValues.length > 0 && stockedValues.every(Number.isFinite);
+  const highWeekly = recommendations.reduce((sum, item) => {
+    const selected = item.cashSelected ?? item.selected;
+    return sum + Number(selected?.highWeeklyProfit ?? selected?.weeklyProfit ?? 0);
+  }, 0);
+  const evidenceReady = recommendations
+    .map(item => item.cashSelected ?? item.selected)
+    .filter(Boolean)
+    .every(selected => selected.priceEvidence && !selected.priceEvidence.provisional);
 
   const buys = recommendations.map(item => {
     const selected = item.cashSelected ?? item.selected;
@@ -75,7 +88,7 @@ export function buildDashboardData({ snapshot, metadata, recommendations, buyTim
 
   const generatedAtMs = Number(metadata.generatedAtMs ?? metadata.fetchedAtMs ?? generatedAt.getTime());
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     generatedAt: new Date(generatedAtMs).toISOString(),
     builtAt: generatedAt.toISOString(),
     staleAfterHours: Number(config.dashboard?.staleAfterHours ?? 4),
@@ -86,6 +99,9 @@ export function buildDashboardData({ snapshot, metadata, recommendations, buyTim
     },
     defaults: {
       accounts: Number(config.dashboard?.defaultAccounts ?? config.accounts ?? 28),
+      sharedAccounts: Number(config.dashboard?.defaultSharedAccounts ?? 10),
+      ownerSharePercent: Number(config.dashboard?.defaultOwnerSharePercent ?? 80),
+      buyBudgetPerAccount: Number(config.dashboard?.defaultBuyBudgetPerAccount ?? 10_000_000),
       haffPerCnyWan: Number(config.dashboard?.defaultHaffPerCnyWan ?? 52)
     },
     plan: {
@@ -93,35 +109,35 @@ export function buildDashboardData({ snapshot, metadata, recommendations, buyTim
       basis: '最近4个周末较低25%成交价；样本不足时使用当前行情临时估算',
       recipes: recipeCards,
       profit: {
-        stockedWeeklyPerAccount: hasCompleteStockedPlan
-          ? round(stockedValues.reduce((sum, value) => sum + value, 0))
-          : null,
-        stockedDailyPerAccount: hasCompleteStockedPlan
-          ? round(stockedValues.reduce((sum, value) => sum + value, 0) / 7)
-          : null,
-        stockedStatus: hasCompleteStockedPlan ? '已按最近买入信号计算' : '等待首次买入信号',
-        noStockWeeklyPerAccount: round(noStockWeekly),
-        noStockDailyPerAccount: round(noStockWeekly / 7),
-        provisional: true
+        conservativeWeeklyPerAccount: round(conservativeWeekly),
+        conservativeDailyPerAccount: round(conservativeWeekly / 7),
+        highWeeklyPerAccount: round(highWeekly),
+        highDailyPerAccount: round(highWeekly / 7),
+        stockedWeeklyPerAccount: null,
+        stockedDailyPerAccount: null,
+        stockedStatus: '新版按当前材料价统一估算，不读取既有库存',
+        noStockWeeklyPerAccount: round(conservativeWeekly),
+        noStockDailyPerAccount: round(conservativeWeekly / 7),
+        basis: evidenceReady
+          ? '材料按当前价，成品按最近4个周末的偏低价与较高常见价估算'
+          : '部分成品历史样本不足，暂以当前售价估算；材料均按当前价',
+        provisional: !evidenceReady
       }
     },
+    buyPlan,
     buys,
     sell: {
       preferredWeekday: '周六',
       preferredStartTime: '21:30',
       undercutLevels: 1,
       remindersMinutesBefore: [720, 30, 10],
-      basis: '最近4个周末价格样本；第一版样本不足时沿用周六21:30'
+      basis: '暂未形成稳定的清仓时段模型，当前沿用你的周末集中出售习惯：周六21:30'
     },
     harvest: {
       cycleHours: 8,
       managedInBrowser: true
     },
-    market: buyTiming?.portfolio ? {
-      bestWeekday: buyTiming.portfolio.bestWeekdays?.[0]?.key ?? null,
-      bestHour: buyTiming.portfolio.bestHours?.[0]?.key ?? null,
-      bestPoweredHour: buyTiming.portfolio.bestPoweredHours?.[0]?.key ?? null
-    } : null
+    market: null
   };
 }
 

@@ -13,6 +13,9 @@
     "title": "三角洲收菜助手",
     "staleAfterHours": 4,
     "defaultAccounts": 28,
+    "defaultSharedAccounts": 10,
+    "defaultOwnerSharePercent": 80,
+    "defaultBuyBudgetPerAccount": 10000000,
     "defaultHaffPerCnyWan": 52,
     "weekendLookbackWeeks": 4,
     "weekendConservativePercentile": 0.25
@@ -26,7 +29,7 @@
     "workbench": {
       "label": "工作台",
       "allowedHours": [7, 8],
-      "weeklyRuns": 18,
+      "weeklyRuns": 17.5,
       "preferredNames": ["4.6 x 30mm AP ST", "4.6×30mm AP ST"]
     },
     "tech": {
@@ -38,13 +41,13 @@
     "pharmacy": {
       "label": "制药台",
       "allowedHours": [8],
-      "weeklyRuns": 18,
+      "weeklyRuns": 17.5,
       "preferredNames": ["精密护甲维修包"]
     },
     "armory": {
       "label": "防具台",
       "allowedHours": [8],
-      "weeklyRuns": 18,
+      "weeklyRuns": 17.5,
       "switchThreshold": 0.1,
       "weakeningThreshold": 0.1,
       "preferredNames": ["H09 防暴头盔（全新）", "H09防暴头盔（全新）", "H09 防暴头盔"]
