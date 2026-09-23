@@ -31,9 +31,10 @@ export function buildWeeklyBuyAdvice({
     normalizeName(name), Array.isArray(rows) ? rows : []
   ]));
   const productionDemand = materialDemand.filter(material => !material.watchOnly);
-  const totalExpectedCost7Days = productionDemand.every(material => Number.isFinite(material.currentPrice))
-    ? productionDemand.reduce((sum, material) => sum + material.expectedPerAccount7Days * material.currentPrice, 0)
-    : null;
+  const knownExpectedCost7Days = productionDemand
+    .filter(material => Number.isFinite(material.currentPrice))
+    .reduce((sum, material) => sum + material.expectedPerAccount7Days * material.currentPrice, 0);
+  const totalExpectedCost7Days = knownExpectedCost7Days > 0 ? knownExpectedCost7Days : null;
   const materialProfiles = materialDemand.map(material => profileMaterial(
     material,
     histories.get(material.key) ?? [],
@@ -407,22 +408,32 @@ function profileMaterial(material, rows, now, totalExpectedCost7Days, options = 
 
 function materialAdvice(profile) {
   const { material, values, weeklyCostShare, priceSpread, ignored } = profile;
-  const lowPrice = values.length >= 72 ? percentile(values, 0.30) : null;
-  const targetPrice = lowPrice;
+  const sufficientlyPriced = values.length >= 72;
+  const p05 = sufficientlyPriced ? percentile(values, 0.05) : null;
+  const p15 = sufficientlyPriced ? percentile(values, 0.15) : null;
+  const p30 = sufficientlyPriced ? percentile(values, 0.30) : null;
+  const medianPrice = sufficientlyPriced ? percentile(values, 0.50) : null;
+  const targetPrice = p30;
+  let tierDays = 0;
+  if (!ignored && Number.isFinite(material.currentPrice) && medianPrice > 0) {
+    if (material.currentPrice <= p05 && material.currentPrice < medianPrice * 0.97) tierDays = 30;
+    else if (material.currentPrice <= p15 && material.currentPrice < medianPrice * 0.98) tierDays = 14;
+    else if (material.currentPrice <= p30 && material.currentPrice < medianPrice * 0.99) tierDays = 7;
+  }
   let action = ignored ? 'ignored' : 'unknown';
   let reason = ignored
     ? '单号一周成本占比很低且价格稳定，不作为重点统计'
     : '历史价格样本不足，暂时没有可靠的买入价';
   if (!ignored && targetPrice !== null && Number.isFinite(material.currentPrice)) {
-    action = material.currentPrice <= targetPrice ? 'buy' : 'wait';
+    action = tierDays >= 7 ? 'buy' : 'wait';
     if (material.watchOnly) {
       const recipe = material.recipes.join('、');
       reason = action === 'buy'
-        ? `稳定方案“${recipe}”的备料已到参考买入价，可提前准备`
+        ? `稳定方案“${recipe}”的备料已到${tierDays}天囤货价，可提前准备`
         : `这是稳定方案“${recipe}”的备料，现价偏高，继续等`;
     } else {
       reason = action === 'buy'
-        ? `现价已到建议买入价，可先买这项材料`
+        ? `现价已到${tierDays}天囤货价，可按该档位购买`
         : `现价还高于建议买入价，适合继续等`;
     }
   }
@@ -430,6 +441,12 @@ function materialAdvice(profile) {
     name: material.name,
     currentPrice: material.currentPrice,
     targetPrice: targetPrice === null ? null : round(targetPrice),
+    tierDays,
+    tierThresholds: sufficientlyPriced ? {
+      days7: round(p30),
+      days14: round(p15),
+      days30: round(p05)
+    } : null,
     perAccount7Days: material.perAccount7Days,
     perAccount14Days: material.perAccount14Days,
     perAccount30Days: material.perAccount30Days,

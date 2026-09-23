@@ -32,6 +32,13 @@ jobs:
         run: npm run build:web
         env:
           DASHBOARD_CONFIG: config.site.json
+      - name: Send actionable buy alerts
+        continue-on-error: true
+        run: npm run notify:buy
+        env:
+          SHOUCAI_NOTIFY_URL: ${{ secrets.SHOUCAI_NOTIFY_URL }}
+          SHOUCAI_NOTIFY_KEY: ${{ secrets.SHOUCAI_NOTIFY_KEY }}
+          SHOUCAI_DASHBOARD_URL: https://maofaw.github.io/shoucai/?view=buy
       - name: Configure Pages
         uses: actions/configure-pages@v5
       - name: Upload site

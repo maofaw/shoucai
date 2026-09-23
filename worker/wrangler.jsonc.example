@@ -10,6 +10,8 @@
     }
   ],
   "vars": {
-    "ALLOWED_ORIGIN": "https://你的用户名.github.io"
+    "ALLOWED_ORIGIN": "https://maofaw.github.io",
+    "FEISHU_RECEIVE_ID_TYPE": "open_id",
+    "NOTIFICATION_COOLDOWN_HOURS": "24"
   }
 }

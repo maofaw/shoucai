@@ -123,7 +123,9 @@ test('budget caps a two-week recommendation at one week, and item advice support
     now: NOW
   });
   assert.equal(partial.materials.find(item => item.name === '材料A').action, 'buy');
+  assert.equal(partial.materials.find(item => item.name === '材料A').tierDays, 30);
   assert.equal(partial.materials.find(item => item.name === '材料B').action, 'wait');
+  assert.equal(partial.materials.find(item => item.name === '材料B').tierDays, 0);
   assert.equal(partial.materials.find(item => item.name === '材料A').targetPrice, 100);
 });
 
@@ -183,6 +185,7 @@ test('cheap stable materials stay in budget but do not dilute timing or the focu
   const ignored = plan.materials.find(item => item.name === '便宜稳定材料');
   assert.equal(ignored.ignored, true);
   assert.equal(ignored.action, 'ignored');
+  assert.equal(ignored.tierDays, 0);
   assert.equal(plan.ignoredMaterialsCount, 1);
   assert.equal(plan.currentBasketCostPerAccount7Days, 3710);
   assert.equal(plan.purchaseCostPerAccount7Days, 3798);

@@ -8,6 +8,7 @@
     "run": "node src/cli.mjs run",
     "run:notify": "node src/cli.mjs run --notify",
     "build:web": "node src/build-web.mjs",
+    "notify:buy": "node scripts/send-buy-alerts.mjs",
     "serve:web": "node scripts/serve-web.mjs",
     "test": "node --test",
     "task:install": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-scheduled-task.ps1",
