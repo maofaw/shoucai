@@ -1,5 +1,6 @@
-const CACHE = 'shoucai-v10';
-const SHELL = ['./', './index.html', './styles.css?v=10', './app.js?v=10', './manifest.webmanifest', './runtime-config.js'];
+const CACHE = 'shoucai-v11';
+const DATA = './data/latest.json';
+const SHELL = ['./', './index.html', './styles.css?v=11', './app.js?v=11', './budget.js', './manifest.webmanifest', './runtime-config.js', './favicon.svg', DATA];
 
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(SHELL)).then(() => self.skipWaiting()));
@@ -14,7 +15,14 @@ self.addEventListener('activate', event => {
 self.addEventListener('fetch', event => {
   const requestUrl = new URL(event.request.url);
   if (requestUrl.pathname.endsWith('/data/latest.json')) {
-    event.respondWith(fetch(event.request).catch(() => caches.match(event.request)));
+    event.respondWith(fetch(event.request)
+      .then(response => {
+        if (!response.ok) throw new Error('行情请求失败');
+        const copy = response.clone();
+        caches.open(CACHE).then(cache => cache.put(DATA, copy));
+        return response;
+      })
+      .catch(() => caches.match(DATA).then(response => response || new Response('', { status: 503 }))));
     return;
   }
   event.respondWith(fetch(event.request)

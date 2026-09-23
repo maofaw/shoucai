@@ -1,3 +1,5 @@
+import { materialCostForDays, suggestedDaysForBudget } from './budget.js';
+
 const state = {
   data: null,
   settings: loadJson('shoucai.settings', {}),
@@ -9,6 +11,7 @@ const state = {
 };
 
 const nf = new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 0 });
+const VALID_VIEWS = new Set(['home', 'buy', 'sell', 'settings']);
 
 init().catch(error => {
   showToast('加载失败：' + error.message);
@@ -37,6 +40,8 @@ async function init() {
   showSettings();
   document.querySelector('#finishSell').hidden = !state.admin;
   renderAll();
+  const initialView = new URLSearchParams(location.search).get('view');
+  if (VALID_VIEWS.has(initialView) && initialView !== 'home') openView(initialView, { updateUrl: false, focus: false });
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
 }
 
@@ -110,6 +115,8 @@ function renderProfit() {
   setText('#conservativeCny', weeklyLow == null ? '人民币待更新' : '约 ' + nf.format(weeklyLow * factor / (state.settings.rate * 10_000)) + ' 元');
   setText('#highCny', weeklyHigh == null ? '人民币待更新' : '约 ' + nf.format(weeklyHigh * factor / (state.settings.rate * 10_000)) + ' 元');
   setText('#dailyRange', dailyLow == null ? '待更新' : moneyWan(dailyLow * factor) + (dailyHigh == null ? '' : ' ～ ' + moneyWan(dailyHigh * factor)));
+  document.querySelector('#conservativeCard').classList.toggle('is-negative', weeklyLow != null && weeklyLow < 0);
+  document.querySelector('#highCard').classList.toggle('is-negative', weeklyHigh != null && weeklyHigh < 0);
   const basis = profit.basis || state.data.plan?.basis || '按当前材料价和历史周末卖价估算';
   setText('#profitBasis', basis + '；已按 ' + state.settings.accounts + ' 个号、其中 ' + state.settings.sharedAccounts + ' 个分成号（你拿 ' + state.settings.userShare + '%）计算。');
 }
@@ -142,16 +149,25 @@ function renderBuys() {
   } else {
     timing.innerHTML = '<span class="card-kicker">本周买料时间</span><strong>没有可靠的首选时段</strong><p>历史价格看不出哪个时段明显更便宜。达到好价就买，不用特意熬夜等。</p>';
   }
+  const suggested = suggestedDaysForBudget(plan, state.settings.budgetWan);
+  const days = state.selectedDays === 'auto' ? suggested : Number(state.selectedDays);
+  const sevenDayCost = materialCostForDays(plan, 7);
+  const budget = state.settings.budgetWan * 10_000;
+  const budgetShortfall = sevenDayCost != null && sevenDayCost > budget;
+  now.classList.remove('is-buy', 'is-shortfall');
   if (!plan) {
     now.innerHTML = '<strong>当前是否该买：暂时无法判断</strong><p>价格明细仍在更新，请暂时参考制造建议。</p>';
   } else {
     const action = plan.nowAction;
-    const heading = action === 'buy' ? '现在适合买料' : action === 'budget-shortfall' ? '预算暂时不够' : action === 'wait' ? '现在先等一等' : '当前买料信号不足';
-    now.classList.toggle('is-buy', action === 'buy');
-    now.innerHTML = '<span class="card-kicker">现在买，还是等？</span><strong>' + heading + '</strong><p>' + escapeHtml(plan.nowReason || '暂无判断依据') + '</p>';
+    const canBuy = action === 'buy' && !budgetShortfall;
+    const heading = budgetShortfall ? '预算还不够买7天' : action === 'buy' ? '现在适合买料' : action === 'budget-shortfall' ? '预算暂时不够' : action === 'wait' ? '现在先等一等' : '当前买料信号不足';
+    const reason = budgetShortfall
+      ? '按你设置的单号预算，还差' + moneyWan(sevenDayCost - budget) + '才能买够7天。'
+      : plan.nowReason || '暂无判断依据';
+    now.classList.toggle('is-buy', canBuy);
+    now.classList.toggle('is-shortfall', budgetShortfall);
+    now.innerHTML = '<span class="card-kicker">现在买，还是等？</span><strong>' + heading + '</strong><p>' + escapeHtml(reason) + '</p>';
   }
-  const suggested = [7, 14, 30].includes(Number(plan?.suggestedDays)) ? Number(plan.suggestedDays) : 7;
-  const days = state.selectedDays === 'auto' ? suggested : Number(state.selectedDays);
   document.querySelectorAll('.days-option').forEach(button => {
     const selected = button.dataset.days === state.selectedDays;
     button.classList.toggle('is-active', selected);
@@ -189,6 +205,13 @@ function renderMaterials(plan, days, suggested) {
     ? '<div class="ignored-material-note"><strong>已省略 ' + ignoredMaterials.length + ' 种便宜稳定材料</strong><p>' +
       escapeHtml(ignoredMaterials.map(material => material.name).join('、')) + '仍计入制造成本和总预算，但不再占用重点买料清单。</p></div>'
     : '';
+  const exchangeNotes = [...new Map(productionMaterials
+    .filter(material => material.exchangeFor && material.acquisitionNote)
+    .map(material => [material.exchangeFor, material.acquisitionNote])).entries()];
+  const exchangeSummary = exchangeNotes.length
+    ? '<div class="exchange-summary"><strong>兑换材料说明</strong>' + exchangeNotes.map(([target, note]) =>
+      '<p><span>' + escapeHtml(target) + '</span>' + escapeHtml(note) + '</p>').join('') + '</div>'
+    : '';
   const materialCard = material => {
     const count = numberOrNull(material[unit]);
     const price = numberOrNull(material.currentPrice);
@@ -197,7 +220,7 @@ function renderMaterials(plan, days, suggested) {
     return '<article class="material-card' + (material.watchOnly ? ' material-card--watch' : '') + '">' +
       '<div class="material-head"><strong>' + escapeHtml(material.name || '未知材料') + '</strong><span class="material-action ' + (buy ? 'is-buy' : '') + '">' + (buy ? '值得先买' : material.action === 'wait' ? '再等等' : '暂无信号') + '</span></div>' +
       '<p class="material-reason">' + escapeHtml(material.reason || '按本周制造方案计算') + '</p>' +
-      (material.acquisitionNote ? '<p class="acquisition-note">' + escapeHtml(material.acquisitionNote) + '</p>' : '') +
+      (material.exchangeFor ? '<p class="exchange-tag">用于兑换 ' + escapeHtml(material.exchangeFor) + '</p>' : material.acquisitionNote ? '<p class="acquisition-note">' + escapeHtml(material.acquisitionNote) + '</p>' : '') +
       '<div class="material-metrics"><div><span>当前单价</span><strong>' + (price == null ? '--' : nf.format(price)) + '</strong></div><div><span>建议最高买价</span><strong>' + (target == null ? '--' : nf.format(target)) + '</strong></div><div><span>单号' + (material.watchOnly ? '备料' : '买') + days + '天</span><strong>' + (count == null ? '--' : nf.format(count) + '个') + '</strong></div></div>' +
       '</article>';
   };
@@ -205,7 +228,7 @@ function renderMaterials(plan, days, suggested) {
   const watchSection = watchMaterials.length
     ? '<div class="watch-material-heading"><strong>稳定方案备料</strong><p>当前不一定生产，但继续盯价，避免常用配方需要切回时没有材料。</p></div>' + watchMaterials.map(materialCard).join('')
     : '';
-  document.querySelector('#buyList').innerHTML = ignoredNote +
+  document.querySelector('#buyList').innerHTML = exchangeSummary + ignoredNote +
     (cards || '<div class="empty-state">当前生产材料都属于便宜稳定项，无需专门盯价。</div>') + watchSection;
 }
 
@@ -241,7 +264,8 @@ function bindNavigation() {
   document.querySelectorAll('.nav-item').forEach(button => button.addEventListener('click', () => openView(button.dataset.target)));
 }
 
-function openView(target) {
+function openView(target, { updateUrl = true, focus = true } = {}) {
+  if (!VALID_VIEWS.has(target)) target = 'home';
   document.querySelectorAll('.nav-item').forEach(item => {
     const active = item.dataset.target === target;
     item.classList.toggle('is-active', active);
@@ -253,7 +277,13 @@ function openView(target) {
     view.hidden = !active;
     view.classList.toggle('is-active', active);
   });
-  document.querySelector('[data-view="' + target + '"] h2')?.focus();
+  if (focus) document.querySelector('[data-view="' + target + '"] h2')?.focus();
+  if (updateUrl) {
+    const url = new URL(location.href);
+    if (target === 'home') url.searchParams.delete('view');
+    else url.searchParams.set('view', target);
+    history.replaceState({ view: target }, '', url);
+  }
   window.scrollTo({ top: 0, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
 }
 
@@ -370,7 +400,7 @@ function moneyWan(value) {
   if (abs >= 10_000) return sign + (abs / 10_000).toFixed(abs >= 1_000_000 ? 0 : 1) + '万';
   return sign + nf.format(abs);
 }
-function relativeAge(ms) { const m = Math.max(0, Math.round(ms / 60_000)); return m < 60 ? m + '分钟前' : (m / 60).toFixed(1) + '小时前'; }
+function relativeAge(ms) { const m = Math.max(0, Math.round(ms / 60_000)); return m < 1 ? '刚刚' : m < 60 ? m + '分钟前' : (m / 60).toFixed(1) + '小时前'; }
 function formatDuration(ms) { const m = Math.ceil(ms / 60_000); return Math.floor(m / 60) + '小时' + (m % 60) + '分钟'; }
 function formatDateTime(value) {
   const date = new Date(value);

@@ -6,8 +6,9 @@
   <meta name="theme-color" content="#0b0f17">
   <meta name="description" content="三角洲行动特勤处收菜、利润和买料助手">
   <title>三角洲收菜助手</title>
+  <link rel="icon" type="image/svg+xml" href="./favicon.svg">
   <link rel="manifest" href="./manifest.webmanifest">
-  <link rel="stylesheet" href="./styles.css?v=10">
+  <link rel="stylesheet" href="./styles.css?v=11">
 </head>
 <body>
   <a class="skip-link" href="#main">跳到主要内容</a>
@@ -29,17 +30,10 @@
   </div>
   <main id="main" class="content" tabindex="-1">
     <section class="view is-active" data-view="home" aria-labelledby="home-title">
-      <div class="section-heading"><div><p class="eyebrow">打开就照着造</p><h2 id="home-title" tabindex="-1">今天四台造什么</h2></div><span id="planState" class="muted-chip">读取中</span></div>
-      <div id="recipeList" class="recipe-list" aria-live="polite"><p class="empty-state">正在读取制造建议…</p></div>
-      <button id="buyShortcut" class="buy-shortcut" type="button">
-        <span class="buy-shortcut__icon"><svg class="icon"><use href="#i-box"/></svg></span>
-        <span class="buy-shortcut__copy"><strong id="buyShortcutTitle">本周什么时候买料</strong><small id="buyShortcutDetail">正在分析整套材料的价格</small></span>
-        <span class="chevron" aria-hidden="true">›</span>
-      </button>
-      <div class="section-heading section-heading--sub"><div><p class="eyebrow">从现在起连续7天</p><h2>预计到手利润</h2></div></div>
+      <div class="section-heading"><div><p class="eyebrow">未来7天 · 已扣除分成</p><h2 id="home-title" tabindex="-1">预计到手利润</h2></div></div>
       <div class="profit-grid" aria-label="按目前材料价格计算的预计利润">
-        <article class="profit-card profit-card--accent"><span class="profit-card__label">保守预计 · 一周</span><strong id="conservativeWeekly" class="profit-card__value">--</strong><p id="conservativeCny" class="profit-card__cny">约 -- 元</p></article>
-        <article class="profit-card"><span class="profit-card__label">较高预计 · 一周</span><strong id="highWeekly" class="profit-card__value">--</strong><p id="highCny" class="profit-card__cny">约 -- 元</p></article>
+        <article id="conservativeCard" class="profit-card profit-card--accent"><span class="profit-card__label">保守预计</span><strong id="conservativeWeekly" class="profit-card__value">--</strong><p id="conservativeCny" class="profit-card__cny">约 -- 元</p></article>
+        <article id="highCard" class="profit-card"><span class="profit-card__label">行情较好时</span><strong id="highWeekly" class="profit-card__value">--</strong><p id="highCny" class="profit-card__cny">约 -- 元</p></article>
       </div>
       <p id="profitBasis" class="profit-basis">按现在买料、周末卖出的历史价格估算。</p>
       <div class="daily-summary"><span>日均到手</span><strong id="dailyRange">--</strong><small>按你的收菜频率折算</small></div>
@@ -48,6 +42,13 @@
         <div class="harvest-copy"><span>下次收菜</span><strong id="nextHarvest">尚未记录</strong><small id="harvestCountdown">完成本轮后点下方按钮</small></div>
         <button id="finishHarvest" class="primary-button" type="button">本轮已完成</button>
       </article>
+      <button id="buyShortcut" class="buy-shortcut" type="button">
+        <span class="buy-shortcut__icon"><svg class="icon"><use href="#i-box"/></svg></span>
+        <span class="buy-shortcut__copy"><strong id="buyShortcutTitle">本周什么时候买料</strong><small id="buyShortcutDetail">正在分析整套材料的价格</small></span>
+        <span class="chevron" aria-hidden="true">›</span>
+      </button>
+      <div class="section-heading section-heading--sub"><div><p class="eyebrow">下一轮照着造</p><h2 id="recipes-title">四台制造方案</h2></div><span id="planState" class="muted-chip">读取中</span></div>
+      <div id="recipeList" class="recipe-list" aria-live="polite"><p class="empty-state">正在读取制造建议…</p></div>
     </section>
     <section class="view" data-view="buy" aria-labelledby="buy-title" hidden>
       <div class="section-heading"><div><p class="eyebrow">四台材料合在一起看</p><h2 id="buy-title" tabindex="-1">本周什么时候买料</h2></div></div>
@@ -81,13 +82,13 @@
     </section>
   </main>
   <nav class="bottom-nav" aria-label="主要导航">
-    <button class="nav-item is-active" type="button" data-target="home" aria-current="page"><svg class="icon"><use href="#i-home"/></svg><span>首页</span></button>
-    <button class="nav-item" type="button" data-target="buy"><svg class="icon"><use href="#i-box"/></svg><span>买料</span></button>
-    <button class="nav-item" type="button" data-target="sell"><svg class="icon"><use href="#i-sell"/></svg><span>清仓</span></button>
-    <button class="nav-item" type="button" data-target="settings"><svg class="icon"><use href="#i-settings"/></svg><span>设置</span></button>
+    <button class="nav-item is-active" type="button" data-target="home" aria-controls="main" aria-current="page"><svg class="icon"><use href="#i-home"/></svg><span>首页</span></button>
+    <button class="nav-item" type="button" data-target="buy" aria-controls="main"><svg class="icon"><use href="#i-box"/></svg><span>买料</span></button>
+    <button class="nav-item" type="button" data-target="sell" aria-controls="main"><svg class="icon"><use href="#i-sell"/></svg><span>清仓</span></button>
+    <button class="nav-item" type="button" data-target="settings" aria-controls="main"><svg class="icon"><use href="#i-settings"/></svg><span>设置</span></button>
   </nav>
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
   <script src="./runtime-config.js"></script>
-  <script type="module" src="./app.js?v=10"></script>
+  <script type="module" src="./app.js?v=11"></script>
 </body>
 </html>
