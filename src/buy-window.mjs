@@ -5,7 +5,7 @@ const DAY_MS = 86_400_000;
 const WEEK_MS = 7 * DAY_MS;
 const WEEKDAYS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
 const NO_RELIABLE_WINDOW = '本周没有可靠的首选时段，达到好价就买';
-const PLAN_VERSION = 'buy-v2-focus-materials';
+const PLAN_VERSION = 'buy-v3-exchange-and-baseline-watch';
 
 /**
  * Builds one weekly shopping plan for the materials used by all selected stations.
@@ -30,8 +30,9 @@ export function buildWeeklyBuyAdvice({
   const histories = new Map(Object.entries(historiesByMaterial).map(([name, rows]) => [
     normalizeName(name), Array.isArray(rows) ? rows : []
   ]));
-  const totalExpectedCost7Days = materialDemand.every(material => Number.isFinite(material.currentPrice))
-    ? materialDemand.reduce((sum, material) => sum + material.expectedPerAccount7Days * material.currentPrice, 0)
+  const productionDemand = materialDemand.filter(material => !material.watchOnly);
+  const totalExpectedCost7Days = productionDemand.every(material => Number.isFinite(material.currentPrice))
+    ? productionDemand.reduce((sum, material) => sum + material.expectedPerAccount7Days * material.currentPrice, 0)
     : null;
   const materialProfiles = materialDemand.map(material => profileMaterial(
     material,
@@ -40,8 +41,10 @@ export function buildWeeklyBuyAdvice({
     totalExpectedCost7Days,
     materialFilter
   ));
-  const focusDemand = materialProfiles.filter(profile => !profile.ignored).map(profile => profile.material);
-  const basketMaterials = focusDemand.length > 0 ? focusDemand : materialDemand;
+  const focusDemand = materialProfiles
+    .filter(profile => !profile.ignored && !profile.material.watchOnly)
+    .map(profile => profile.material);
+  const basketMaterials = focusDemand.length > 0 ? focusDemand : productionDemand;
   const basketSeries = combineHistories(basketMaterials.map(material => ({
     name: material.name,
     count: material.expectedPerAccount7Days,
@@ -150,6 +153,7 @@ export function buildWeeklyBuyAdvice({
     ignoredMaterialNames: ignoredMaterials.map(material => material.name),
     ignoredMaterialsCostPerAccount7Days: ignoredMaterials.reduce((sum, material) =>
       sum + Number(material.currentPrice ?? 0) * Number(material.perAccount7Days ?? 0), 0),
+    watchedMaterialsCount: materials.filter(material => material.watchOnly).length,
     evidence: historicalPlan.evidence
   };
 }
@@ -163,31 +167,96 @@ function gatherMaterialDemand(recommendations) {
   for (const item of recommendations) {
     const selected = item.cashSelected ?? item.selected;
     if (!selected) continue;
-    const runs7 = plannedWeeklyRuns(item.place, Number(selected.hours));
-    const runs14 = runs7 * 2;
-    if (!(runs7 > 0)) continue;
-    for (const ingredient of selected.recipe?.materials ?? []) {
-      const name = String(ingredient.display_name || ingredient.name || '').trim();
-      const key = normalizeName(name);
-      const perRun = Number(ingredient.required_count);
-      if (!key || !(perRun > 0)) continue;
-      const currentPrice = Number(ingredient.current_price);
-      const previous = materials.get(key) ?? {
-        key, name, currentPrice: null,
-        expectedPerAccount7Days: 0,
-        perAccount7Days: 0,
-        perAccount14Days: 0,
-        perAccount30Days: 0
-      };
-      previous.expectedPerAccount7Days += perRun * runs7;
-      previous.perAccount7Days += perRun * Math.ceil(runs7);
-      previous.perAccount14Days += perRun * Math.ceil(runs14);
-      previous.perAccount30Days += perRun * Math.ceil(runs7 * 30 / 7);
-      if (Number.isFinite(currentPrice) && currentPrice > 0) previous.currentPrice = currentPrice;
-      materials.set(key, previous);
+    addRecipeDemand(materials, item, selected, false);
+    const preferred = (item.cashCandidates ?? item.candidates ?? [])
+      .find(candidate => candidate.preferred);
+    if (preferred && preferred.recipe?.id !== selected.recipe?.id) {
+      addRecipeDemand(materials, item, preferred, true);
     }
   }
-  return [...materials.values()].sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
+  return [...materials.values()].map(material => {
+    const hasProduction = material.production.expectedPerAccount7Days > 0;
+    const demand = hasProduction ? material.production : material.watch;
+    return {
+      key: material.key,
+      name: material.name,
+      currentPrice: material.currentPrice,
+      expectedPerAccount7Days: demand.expectedPerAccount7Days,
+      perAccount7Days: demand.perAccount7Days,
+      perAccount14Days: demand.perAccount14Days,
+      perAccount30Days: demand.perAccount30Days,
+      watchOnly: !hasProduction,
+      recipes: [...(hasProduction ? material.productionRecipes : material.watchRecipes)],
+      acquisitionNote: material.acquisitionNote,
+      exchangeFor: material.exchangeFor
+    };
+  }).sort((a, b) => Number(a.watchOnly) - Number(b.watchOnly)
+    || a.name.localeCompare(b.name, 'zh-CN'));
+}
+
+function addRecipeDemand(materials, item, candidate, watchOnly) {
+  const runs7 = plannedWeeklyRuns(item.place, Number(candidate.hours));
+  if (!(runs7 > 0)) return;
+  for (const ingredient of candidate.recipe?.materials ?? []) {
+    const perRun = Number(ingredient.required_count);
+    if (!(perRun > 0)) continue;
+    const acquisition = ingredient.acquisition;
+    if (acquisition?.mode === 'exchange' && Number(acquisition.outputCount) > 0) {
+      for (const source of acquisition.sources ?? []) {
+        const outputCount = Number(acquisition.outputCount);
+        const sourceCount = Number(source.count ?? 1);
+        const demand = {
+          expectedPerAccount7Days: perRun * runs7 / outputCount * sourceCount,
+          perAccount7Days: Math.ceil(perRun * Math.ceil(runs7) / outputCount) * sourceCount,
+          perAccount14Days: Math.ceil(perRun * Math.ceil(runs7 * 2) / outputCount) * sourceCount,
+          perAccount30Days: Math.ceil(perRun * Math.ceil(runs7 * 30 / 7) / outputCount) * sourceCount
+        };
+        addDemand(materials, {
+          name: source.name,
+          currentPrice: Number(source.currentPrice),
+          demand,
+          watchOnly,
+          recipeName: candidate.name,
+          acquisitionNote: acquisition.note,
+          exchangeFor: acquisition.target
+        });
+      }
+      continue;
+    }
+    const name = String(ingredient.display_name || ingredient.name || '').trim();
+    const demand = {
+      expectedPerAccount7Days: perRun * runs7,
+      perAccount7Days: perRun * Math.ceil(runs7),
+      perAccount14Days: perRun * Math.ceil(runs7 * 2),
+      perAccount30Days: perRun * Math.ceil(runs7 * 30 / 7)
+    };
+    addDemand(materials, {
+      name,
+      currentPrice: Number(ingredient.current_price),
+      demand,
+      watchOnly,
+      recipeName: candidate.name,
+      acquisitionNote: acquisition?.note ?? null,
+      exchangeFor: null
+    });
+  }
+}
+
+function addDemand(materials, { name, currentPrice, demand, watchOnly, recipeName, acquisitionNote, exchangeFor }) {
+  const key = normalizeName(name);
+  if (!key) return;
+  const blank = () => ({ expectedPerAccount7Days: 0, perAccount7Days: 0, perAccount14Days: 0, perAccount30Days: 0 });
+  const previous = materials.get(key) ?? {
+    key, name, currentPrice: null, production: blank(), watch: blank(),
+    productionRecipes: new Set(), watchRecipes: new Set(), acquisitionNote: null, exchangeFor: null
+  };
+  const bucket = watchOnly ? previous.watch : previous.production;
+  for (const field of Object.keys(bucket)) bucket[field] += Number(demand[field] ?? 0);
+  (watchOnly ? previous.watchRecipes : previous.productionRecipes).add(recipeName);
+  if (Number.isFinite(currentPrice) && currentPrice > 0) previous.currentPrice = currentPrice;
+  if (acquisitionNote) previous.acquisitionNote = acquisitionNote;
+  if (exchangeFor) previous.exchangeFor = exchangeFor;
+  materials.set(key, previous);
 }
 
 function plannedWeeklyRuns(place, hours) {
@@ -330,7 +399,7 @@ function profileMaterial(material, rows, now, totalExpectedCost7Days, options = 
   const weeklyCostShare = totalExpectedCost7Days > 0 && Number.isFinite(material.currentPrice)
     ? material.expectedPerAccount7Days * material.currentPrice / totalExpectedCost7Days
     : null;
-  const ignored = values.length >= minimumSamples
+  const ignored = !material.watchOnly && values.length >= minimumSamples
     && weeklyCostShare !== null && weeklyCostShare <= maxWeeklyCostShare
     && priceSpread !== null && priceSpread <= maxPriceSpread;
   return { material, values, weeklyCostShare, priceSpread, ignored };
@@ -346,9 +415,16 @@ function materialAdvice(profile) {
     : '历史价格样本不足，暂时没有可靠的买入价';
   if (!ignored && targetPrice !== null && Number.isFinite(material.currentPrice)) {
     action = material.currentPrice <= targetPrice ? 'buy' : 'wait';
-    reason = action === 'buy'
-      ? `现价已到建议买入价，可先买这项材料`
-      : `现价还高于建议买入价，适合继续等`;
+    if (material.watchOnly) {
+      const recipe = material.recipes.join('、');
+      reason = action === 'buy'
+        ? `稳定方案“${recipe}”的备料已到参考买入价，可提前准备`
+        : `这是稳定方案“${recipe}”的备料，现价偏高，继续等`;
+    } else {
+      reason = action === 'buy'
+        ? `现价已到建议买入价，可先买这项材料`
+        : `现价还高于建议买入价，适合继续等`;
+    }
   }
   return {
     name: material.name,
@@ -361,14 +437,19 @@ function materialAdvice(profile) {
     weeklyCostSharePercent: weeklyCostShare === null ? null : round(weeklyCostShare * 100, 2),
     priceSpreadPercent: priceSpread === null ? null : round(priceSpread * 100, 1),
     ignored,
+    watchOnly: material.watchOnly,
+    recipes: material.recipes,
+    acquisitionNote: material.acquisitionNote,
+    exchangeFor: material.exchangeFor,
     action,
     reason
   };
 }
 
 function purchaseCost(materials, days) {
-  if (materials.length === 0 || materials.some(material => !Number.isFinite(material.currentPrice))) return null;
-  return materials.reduce((total, material) => total
+  const production = materials.filter(material => !material.watchOnly);
+  if (production.length === 0 || production.some(material => !Number.isFinite(material.currentPrice))) return null;
+  return production.reduce((total, material) => total
     + material.currentPrice * (days === 30
       ? material.perAccount30Days
       : days === 14 ? material.perAccount14Days : material.perAccount7Days), 0);

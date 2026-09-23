@@ -187,3 +187,67 @@ test('cheap stable materials stay in budget but do not dilute timing or the focu
   assert.equal(plan.currentBasketCostPerAccount7Days, 3710);
   assert.equal(plan.purchaseCostPerAccount7Days, 3798);
 });
+
+test('exchange ingredients replace the direct material and use whole exchange bundles', () => {
+  const selected = [{
+    place: 'workbench',
+    selected: {
+      name: '测试弹药', hours: 8,
+      recipe: { id: 10, materials: [{
+        display_name: '高级燃料', required_count: 2, current_price: 100,
+        acquisition: {
+          mode: 'exchange', target: '高级燃料', outputCount: 4,
+          note: '1个咖啡＋1把弯刀兑换4个高级燃料',
+          sources: [
+            { name: '盒装挂耳咖啡', count: 1, currentPrice: 30 },
+            { name: '海盗弯刀', count: 1, currentPrice: 10 }
+          ]
+        }
+      }] }
+    }
+  }];
+  const base = threeWeekHistory().材料A;
+  const plan = buildWeeklyBuyAdvice({
+    recommendations: selected,
+    historiesByMaterial: {
+      盒装挂耳咖啡: base.map(row => ({ ...row, avg: 30 })),
+      海盗弯刀: base.map(row => ({ ...row, avg: 10 }))
+    },
+    now: NOW
+  });
+  assert.deepEqual(materialNamesForSelectedRecipes(selected), ['海盗弯刀', '盒装挂耳咖啡']);
+  assert.equal(plan.materials.some(item => item.name === '高级燃料'), false);
+  assert.equal(plan.materials.find(item => item.name === '盒装挂耳咖啡').perAccount7Days, 9);
+  assert.equal(plan.materials.find(item => item.name === '盒装挂耳咖啡').exchangeFor, '高级燃料');
+  assert.equal(plan.purchaseCostPerAccount7Days, 360);
+});
+
+test('preferred recipe materials remain watched when a temporary challenger is selected', () => {
+  const base = threeWeekHistory().材料A;
+  const current = {
+    name: '感知强化剂', hours: 8, preferred: false,
+    recipe: { id: 20, materials: [{ display_name: '小药瓶', required_count: 1, current_price: 10 }] }
+  };
+  const preferred = {
+    name: '精密护甲维修包', hours: 8, preferred: true,
+    recipe: { id: 21, materials: [
+      { display_name: '特种钢', required_count: 3, current_price: 40 },
+      { display_name: '无线便携电钻', required_count: 1, current_price: 30 }
+    ] }
+  };
+  const plan = buildWeeklyBuyAdvice({
+    recommendations: [{ place: 'pharmacy', selected: current, candidates: [current, preferred] }],
+    historiesByMaterial: {
+      小药瓶: base.map(row => ({ ...row, avg: 10 })),
+      特种钢: base.map(row => ({ ...row, avg: 40 })),
+      无线便携电钻: base.map(row => ({ ...row, avg: 30 }))
+    },
+    now: NOW
+  });
+  const steel = plan.materials.find(item => item.name === '特种钢');
+  assert.equal(steel.watchOnly, true);
+  assert.deepEqual(steel.recipes, ['精密护甲维修包']);
+  assert.equal(steel.perAccount7Days, 54);
+  assert.equal(plan.watchedMaterialsCount, 2);
+  assert.equal(plan.purchaseCostPerAccount7Days, 180);
+});

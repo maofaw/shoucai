@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-09-23T11:11:17.591Z",
-  "builtAt": "2026-09-23T11:11:19.922Z",
+  "generatedAt": "2026-09-23T11:36:38.359Z",
+  "builtAt": "2026-09-23T11:36:58.511Z",
   "staleAfterHours": 4,
   "source": {
     "name": "Moligod",
@@ -27,16 +27,16 @@
         "backup": "5.45x39mm BS",
         "backupHours": 8,
         "backupDeltaPercent": -4.4,
-        "reason": "保守周利润比常用配方高16.4%，下一轮建议换",
+        "reason": "保守周利润比常用配方高16.5%，下一轮建议换",
         "weeklyRuns": 17.5,
-        "currentCost": 267933,
+        "currentCost": 267205,
         "fee": 85121,
         "revenueConservative": 654780,
         "revenueHigh": 751650,
-        "perRunConservativeProfit": 301726,
-        "perRunHighProfit": 386003,
-        "weeklyConservativeProfit": 5280198,
-        "weeklyHighProfit": 6755044,
+        "perRunConservativeProfit": 302454,
+        "perRunHighProfit": 386731,
+        "weeklyConservativeProfit": 5292938,
+        "weeklyHighProfit": 6767784,
         "provisional": false,
         "evidence": {
           "source": "Moligod 每小时历史行情（周六、周日）",
@@ -122,7 +122,7 @@
         "hours": 8,
         "backup": "精英防弹背心（全新）",
         "backupHours": 8,
-        "backupDeltaPercent": 2.2,
+        "backupDeltaPercent": 1.2,
         "reason": "其他配方的保守周利润没有高出10%，继续造常用配方",
         "weeklyRuns": 17.5,
         "currentCost": 104015,
@@ -149,53 +149,35 @@
       }
     ],
     "profit": {
-      "conservativeWeeklyPerAccount": 9198045,
-      "conservativeDailyPerAccount": 1314006,
-      "highWeeklyPerAccount": 11205897,
-      "highDailyPerAccount": 1600842,
+      "conservativeWeeklyPerAccount": 9210785,
+      "conservativeDailyPerAccount": 1315826,
+      "highWeeklyPerAccount": 11218637,
+      "highDailyPerAccount": 1602662,
       "stockedWeeklyPerAccount": null,
       "stockedDailyPerAccount": null,
       "stockedStatus": "新版按当前材料价统一估算，不读取既有库存",
-      "noStockWeeklyPerAccount": 9198045,
-      "noStockDailyPerAccount": 1314006,
+      "noStockWeeklyPerAccount": 9210785,
+      "noStockDailyPerAccount": 1315826,
       "basis": "材料按当前价，成品按最近4个周末的偏低价与较高常见价估算",
       "provisional": false
     }
   },
   "buyPlan": {
-    "status": "ready",
+    "status": "insufficient",
     "weekKey": "2026-09-21",
-    "recipeSignature": "buy-v2-focus-materials|armory:910:8:原木木板:2,芳纶纤维:1,钛合金:2|pharmacy:876:8:含氟牙膏:2,小药瓶:3,酸奶:1|tech:837:16:原木木板:3,工具箱:1,枪械零件:1|workbench:746:8:火药:2,音频播放器:1,高级燃料:2",
-    "primaryWindow": {
-      "label": "周一 02:00–04:00",
-      "weekday": "周一",
-      "startTime": "02:00",
-      "endTime": "04:00",
-      "reason": "最近3周，这段时间整套材料都比各周常见价格低约7.9%，是重复出现的低价时段。",
-      "typicalCostPerAccount7Days": 5977369,
-      "savingPercent": 7.9,
-      "observedWeeks": 3
-    },
-    "backupWindow": {
-      "label": "周日 02:00–04:00",
-      "weekday": "周日",
-      "startTime": "02:00",
-      "endTime": "04:00",
-      "reason": "最近3周，这段时间整套材料都比各周常见价格低约7.7%；若错过首选，可在这里买。与首选的历史成本相差约0.4%。",
-      "typicalCostPerAccount7Days": 6002971,
-      "savingPercent": 7.7,
-      "observedWeeks": 3
-    },
-    "windowMessage": "按最近三个完整自然周的整套材料价格估算，本周首选和备选时段已固定",
+    "recipeSignature": "buy-v3-exchange-and-baseline-watch|armory:910:8:原木木板:2,芳纶纤维:1,钛合金:2|pharmacy:876:8:含氟牙膏:2,小药瓶:3,酸奶:1|tech:837:16:原木木板:3,工具箱:1,枪械零件:1|workbench:746:8:火药:2,音频播放器:1,高级燃料:2",
+    "primaryWindow": null,
+    "backupWindow": null,
+    "windowMessage": "本周没有可靠的首选时段，达到好价就买",
     "nowAction": "wait",
-    "nowReason": "整套材料还没有达到合适价格，先关注首选买料时段",
+    "nowReason": "整套材料还没有达到合适价格，达到好价再买",
     "suggestedDays": 0,
     "estimatedPerAccountCost": null,
     "budgetGapPerAccount": null,
-    "currentBasketCostPerAccount7Days": 6800743.5,
-    "purchaseCostPerAccount7Days": 7448733,
-    "purchaseCostPerAccount14Days": 14511909,
-    "purchaseCostPerAccount30Days": 31121172,
+    "currentBasketCostPerAccount7Days": 6788003.5,
+    "purchaseCostPerAccount7Days": 7435629,
+    "purchaseCostPerAccount14Days": 14696011,
+    "purchaseCostPerAccount30Days": 31276154,
     "materials": [
       {
         "name": "芳纶纤维",
@@ -205,23 +187,15 @@
         "perAccount14Days": 35,
         "perAccount30Days": 75,
         "sampleCount": 692,
-        "weeklyCostSharePercent": 5.93,
+        "weeklyCostSharePercent": 5.94,
         "priceSpreadPercent": 7.2,
         "ignored": false,
-        "action": "wait",
-        "reason": "现价还高于建议买入价，适合继续等"
-      },
-      {
-        "name": "高级燃料",
-        "currentPrice": 105155,
-        "targetPrice": 95438,
-        "perAccount7Days": 36,
-        "perAccount14Days": 70,
-        "perAccount30Days": 150,
-        "sampleCount": 713,
-        "weeklyCostSharePercent": 50.72,
-        "priceSpreadPercent": 10.5,
-        "ignored": false,
+        "watchOnly": false,
+        "recipes": [
+          "H09 防暴头盔（全新）"
+        ],
+        "acquisitionNote": null,
+        "exchangeFor": null,
         "action": "wait",
         "reason": "现价还高于建议买入价，适合继续等"
       },
@@ -236,8 +210,34 @@
         "weeklyCostSharePercent": 3.18,
         "priceSpreadPercent": 0,
         "ignored": false,
+        "watchOnly": false,
+        "recipes": [
+          "SVD狙击步枪"
+        ],
+        "acquisitionNote": null,
+        "exchangeFor": null,
         "action": "buy",
         "reason": "现价已到建议买入价，可先买这项材料"
+      },
+      {
+        "name": "海盗弯刀",
+        "currentPrice": 42142,
+        "targetPrice": 29047,
+        "perAccount7Days": 9,
+        "perAccount14Days": 18,
+        "perAccount30Days": 38,
+        "sampleCount": 692,
+        "weeklyCostSharePercent": 5.09,
+        "priceSpreadPercent": 82,
+        "ignored": false,
+        "watchOnly": false,
+        "recipes": [
+          ".45 ACP Super​"
+        ],
+        "acquisitionNote": "按1个盒装挂耳咖啡＋1个海盗弯刀兑换4个高级燃料，当前比直接购买便宜",
+        "exchangeFor": "高级燃料",
+        "action": "wait",
+        "reason": "现价还高于建议买入价，适合继续等"
       },
       {
         "name": "含氟牙膏",
@@ -250,8 +250,34 @@
         "weeklyCostSharePercent": 1.09,
         "priceSpreadPercent": 0,
         "ignored": true,
+        "watchOnly": false,
+        "recipes": [
+          "感知强化剂"
+        ],
+        "acquisitionNote": null,
+        "exchangeFor": null,
         "action": "ignored",
         "reason": "单号一周成本占比很低且价格稳定，不作为重点统计"
+      },
+      {
+        "name": "盒装挂耳咖啡",
+        "currentPrice": 377022,
+        "targetPrice": 352806,
+        "perAccount7Days": 9,
+        "perAccount14Days": 18,
+        "perAccount30Days": 38,
+        "sampleCount": 692,
+        "weeklyCostSharePercent": 45.55,
+        "priceSpreadPercent": 7.6,
+        "ignored": false,
+        "watchOnly": false,
+        "recipes": [
+          ".45 ACP Super​"
+        ],
+        "acquisitionNote": "按1个盒装挂耳咖啡＋1个海盗弯刀兑换4个高级燃料，当前比直接购买便宜",
+        "exchangeFor": "高级燃料",
+        "action": "wait",
+        "reason": "现价还高于建议买入价，适合继续等"
       },
       {
         "name": "火药",
@@ -261,9 +287,15 @@
         "perAccount14Days": 70,
         "perAccount30Days": 150,
         "sampleCount": 692,
-        "weeklyCostSharePercent": 11.21,
+        "weeklyCostSharePercent": 11.23,
         "priceSpreadPercent": 27.5,
         "ignored": false,
+        "watchOnly": false,
+        "recipes": [
+          ".45 ACP Super​"
+        ],
+        "acquisitionNote": null,
+        "exchangeFor": null,
         "action": "wait",
         "reason": "现价还高于建议买入价，适合继续等"
       },
@@ -278,6 +310,12 @@
         "weeklyCostSharePercent": 2.27,
         "priceSpreadPercent": 7.4,
         "ignored": true,
+        "watchOnly": false,
+        "recipes": [
+          "SVD狙击步枪"
+        ],
+        "acquisitionNote": null,
+        "exchangeFor": null,
         "action": "ignored",
         "reason": "单号一周成本占比很低且价格稳定，不作为重点统计"
       },
@@ -292,6 +330,12 @@
         "weeklyCostSharePercent": 0.23,
         "priceSpreadPercent": 0,
         "ignored": true,
+        "watchOnly": false,
+        "recipes": [
+          "感知强化剂"
+        ],
+        "acquisitionNote": null,
+        "exchangeFor": null,
         "action": "ignored",
         "reason": "单号一周成本占比很低且价格稳定，不作为重点统计"
       },
@@ -303,9 +347,15 @@
         "perAccount14Days": 70,
         "perAccount30Days": 150,
         "sampleCount": 713,
-        "weeklyCostSharePercent": 17.13,
+        "weeklyCostSharePercent": 17.16,
         "priceSpreadPercent": 23.7,
         "ignored": false,
+        "watchOnly": false,
+        "recipes": [
+          "H09 防暴头盔（全新）"
+        ],
+        "acquisitionNote": "当前直接购买不贵于1个可编程处理器＋1个清新橘味能量凝胶兑换4个钛合金",
+        "exchangeFor": null,
         "action": "wait",
         "reason": "现价还高于建议买入价，适合继续等"
       },
@@ -317,9 +367,15 @@
         "perAccount14Days": 105,
         "perAccount30Days": 225,
         "sampleCount": 692,
-        "weeklyCostSharePercent": 1.96,
+        "weeklyCostSharePercent": 1.97,
         "priceSpreadPercent": 8.5,
         "ignored": false,
+        "watchOnly": false,
+        "recipes": [
+          "感知强化剂"
+        ],
+        "acquisitionNote": null,
+        "exchangeFor": null,
         "action": "wait",
         "reason": "现价还高于建议买入价，适合继续等"
       },
@@ -331,9 +387,15 @@
         "perAccount14Days": 35,
         "perAccount30Days": 75,
         "sampleCount": 692,
-        "weeklyCostSharePercent": 2.68,
+        "weeklyCostSharePercent": 2.69,
         "priceSpreadPercent": 7.5,
         "ignored": true,
+        "watchOnly": false,
+        "recipes": [
+          ".45 ACP Super​"
+        ],
+        "acquisitionNote": null,
+        "exchangeFor": null,
         "action": "ignored",
         "reason": "单号一周成本占比很低且价格稳定，不作为重点统计"
       },
@@ -345,11 +407,78 @@
         "perAccount14Days": 124,
         "perAccount30Days": 267,
         "sampleCount": 692,
-        "weeklyCostSharePercent": 3.59,
+        "weeklyCostSharePercent": 3.6,
         "priceSpreadPercent": 4.2,
         "ignored": false,
+        "watchOnly": false,
+        "recipes": [
+          "SVD狙击步枪",
+          "H09 防暴头盔（全新）"
+        ],
+        "acquisitionNote": null,
+        "exchangeFor": null,
         "action": "wait",
         "reason": "现价还高于建议买入价，适合继续等"
+      },
+      {
+        "name": "航天冷却剂",
+        "currentPrice": 148623,
+        "targetPrice": 148623,
+        "perAccount7Days": 18,
+        "perAccount14Days": 35,
+        "perAccount30Days": 75,
+        "sampleCount": 692,
+        "weeklyCostSharePercent": 35.91,
+        "priceSpreadPercent": 125.2,
+        "ignored": false,
+        "watchOnly": true,
+        "recipes": [
+          "4.6 x 30mm AP ST"
+        ],
+        "acquisitionNote": null,
+        "exchangeFor": null,
+        "action": "buy",
+        "reason": "稳定方案“4.6 x 30mm AP ST”的备料已到参考买入价，可提前准备"
+      },
+      {
+        "name": "特种钢",
+        "currentPrice": 44262,
+        "targetPrice": 32388,
+        "perAccount7Days": 54,
+        "perAccount14Days": 105,
+        "perAccount30Days": 225,
+        "sampleCount": 692,
+        "weeklyCostSharePercent": 32.08,
+        "priceSpreadPercent": 55,
+        "ignored": false,
+        "watchOnly": true,
+        "recipes": [
+          "精密护甲维修包"
+        ],
+        "acquisitionNote": null,
+        "exchangeFor": null,
+        "action": "wait",
+        "reason": "这是稳定方案“精密护甲维修包”的备料，现价偏高，继续等"
+      },
+      {
+        "name": "无线便携电钻",
+        "currentPrice": 31575,
+        "targetPrice": 30445,
+        "perAccount7Days": 18,
+        "perAccount14Days": 35,
+        "perAccount30Days": 75,
+        "sampleCount": 692,
+        "weeklyCostSharePercent": 7.63,
+        "priceSpreadPercent": 8.4,
+        "ignored": false,
+        "watchOnly": true,
+        "recipes": [
+          "精密护甲维修包"
+        ],
+        "acquisitionNote": null,
+        "exchangeFor": null,
+        "action": "wait",
+        "reason": "这是稳定方案“精密护甲维修包”的备料，现价偏高，继续等"
       }
     ],
     "ignoredMaterialsCount": 4,
@@ -360,9 +489,10 @@
       "音频播放器"
     ],
     "ignoredMaterialsCostPerAccount7Days": 463509,
+    "watchedMaterialsCount": 3,
     "evidence": {
-      "sampleCount": 484,
-      "weekCount": 3,
+      "sampleCount": 0,
+      "weekCount": 0,
       "lookbackWeeks": 3,
       "through": "2026-09-20"
     }
@@ -377,7 +507,7 @@
       "tier": null,
       "days": 0,
       "reason": "本地历史样本不足（0条，跨度0.0小时），只补1天，不大囤",
-      "currentCost": 267933,
+      "currentCost": 267205,
       "currentPercentile": null,
       "thresholds": null,
       "perAccountBudget": null,

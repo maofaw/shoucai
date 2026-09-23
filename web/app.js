@@ -168,12 +168,14 @@ function windowHtml(kind, value) {
 function renderMaterials(plan, days, suggested) {
   const budget = state.settings.budgetWan * 10_000;
   const allMaterials = plan?.materials || [];
-  const materials = allMaterials.filter(material => !material.ignored);
-  const ignoredMaterials = allMaterials.filter(material => material.ignored);
+  const productionMaterials = allMaterials.filter(material => !material.watchOnly);
+  const materials = productionMaterials.filter(material => !material.ignored);
+  const watchMaterials = allMaterials.filter(material => material.watchOnly);
+  const ignoredMaterials = productionMaterials.filter(material => material.ignored);
   const unit = days === 30 ? 'perAccount30Days' : days === 14 ? 'perAccount14Days' : 'perAccount7Days';
-  const knownCosts = allMaterials.filter(m => numberOrNull(m.currentPrice) != null && numberOrNull(m[unit]) != null);
-  const cost = allMaterials.length && knownCosts.length === allMaterials.length
-    ? allMaterials.reduce((sum, m) => sum + Number(m.currentPrice) * Number(m[unit]), 0)
+  const knownCosts = productionMaterials.filter(m => numberOrNull(m.currentPrice) != null && numberOrNull(m[unit]) != null);
+  const cost = productionMaterials.length && knownCosts.length === productionMaterials.length
+    ? productionMaterials.reduce((sum, m) => sum + Number(m.currentPrice) * Number(m[unit]), 0)
     : null;
   const explanation = state.selectedDays === 'auto' ? '自动建议买' + suggested + '天；可手动改' : '按你选的' + days + '天计算';
   setText('#buyBudget', explanation + '。单号预计花费 ' + (cost == null ? '待更新' : moneyWan(cost)) +
@@ -187,18 +189,24 @@ function renderMaterials(plan, days, suggested) {
     ? '<div class="ignored-material-note"><strong>已省略 ' + ignoredMaterials.length + ' 种便宜稳定材料</strong><p>' +
       escapeHtml(ignoredMaterials.map(material => material.name).join('、')) + '仍计入制造成本和总预算，但不再占用重点买料清单。</p></div>'
     : '';
-  const cards = materials.map(material => {
+  const materialCard = material => {
     const count = numberOrNull(material[unit]);
     const price = numberOrNull(material.currentPrice);
     const target = numberOrNull(material.targetPrice);
     const buy = material.action === 'buy';
-    return '<article class="material-card">' +
+    return '<article class="material-card' + (material.watchOnly ? ' material-card--watch' : '') + '">' +
       '<div class="material-head"><strong>' + escapeHtml(material.name || '未知材料') + '</strong><span class="material-action ' + (buy ? 'is-buy' : '') + '">' + (buy ? '值得先买' : material.action === 'wait' ? '再等等' : '暂无信号') + '</span></div>' +
       '<p class="material-reason">' + escapeHtml(material.reason || '按本周制造方案计算') + '</p>' +
-      '<div class="material-metrics"><div><span>当前单价</span><strong>' + (price == null ? '--' : nf.format(price)) + '</strong></div><div><span>建议最高买价</span><strong>' + (target == null ? '--' : nf.format(target)) + '</strong></div><div><span>单号买' + days + '天</span><strong>' + (count == null ? '--' : nf.format(count) + '个') + '</strong></div></div>' +
+      (material.acquisitionNote ? '<p class="acquisition-note">' + escapeHtml(material.acquisitionNote) + '</p>' : '') +
+      '<div class="material-metrics"><div><span>当前单价</span><strong>' + (price == null ? '--' : nf.format(price)) + '</strong></div><div><span>建议最高买价</span><strong>' + (target == null ? '--' : nf.format(target)) + '</strong></div><div><span>单号' + (material.watchOnly ? '备料' : '买') + days + '天</span><strong>' + (count == null ? '--' : nf.format(count) + '个') + '</strong></div></div>' +
       '</article>';
-  }).join('');
-  document.querySelector('#buyList').innerHTML = ignoredNote + (cards || '<div class="empty-state">当前材料都属于便宜稳定项，无需专门盯价。</div>');
+  };
+  const cards = materials.map(materialCard).join('');
+  const watchSection = watchMaterials.length
+    ? '<div class="watch-material-heading"><strong>稳定方案备料</strong><p>当前不一定生产，但继续盯价，避免常用配方需要切回时没有材料。</p></div>' + watchMaterials.map(materialCard).join('')
+    : '';
+  document.querySelector('#buyList').innerHTML = ignoredNote +
+    (cards || '<div class="empty-state">当前生产材料都属于便宜稳定项，无需专门盯价。</div>') + watchSection;
 }
 
 function renderSell() {

@@ -6,17 +6,33 @@ import { buildRecommendations } from './recommend.mjs';
 import { fetchMaterialHistory } from './market-history.mjs';
 import { enrichRecommendationsWithWeekendPrices } from './weekend-prices.mjs';
 import { buildWeeklyBuyAdvice, materialNamesForSelectedRecipes } from './buy-window.mjs';
+import { applyExchangePricing } from './exchange-pricing.mjs';
 import { buildDashboardData } from './web-data.mjs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const configName = process.env.DASHBOARD_CONFIG ?? 'config.site.json';
 const config = JSON.parse(fs.readFileSync(path.join(projectRoot, configName), 'utf8'));
-const { snapshot, metadata } = await fetchSpecialOpsSnapshot(config.snapshotUrl);
+const { snapshot: rawSnapshot, metadata } = await fetchSpecialOpsSnapshot(config.snapshotUrl);
 const destination = path.join(projectRoot, 'web', 'data', 'latest.json');
+const exchangeSourceNames = [...new Set((config.exchangeRules ?? [])
+  .flatMap(rule => rule.sources ?? [])
+  .map(source => source.name))];
+const exchangeHistories = Object.fromEntries(await Promise.all(exchangeSourceNames.map(async name => {
+  try {
+    return [name, await fetchMaterialHistory(name, {
+      limit: Number(config.history?.marketLimit ?? 720), attempts: 2, timeoutMs: 15_000
+    })];
+  } catch (error) {
+    console.warn(`Exchange material history unavailable: ${name}: ${error?.message ?? error}`);
+    return [name, []];
+  }
+})));
+const snapshot = applyExchangePricing(rawSnapshot, config.exchangeRules, exchangeHistories);
 const baseRecommendations = buildRecommendations(snapshot, config);
 const recommendations = await enrichRecommendationsWithWeekendPrices(baseRecommendations, config);
 const materialNames = materialNamesForSelectedRecipes(recommendations);
 const historiesByMaterial = Object.fromEntries(await Promise.all(materialNames.map(async name => {
+  if (exchangeHistories[name]) return [name, exchangeHistories[name]];
   try {
     return [name, await fetchMaterialHistory(name, {
       limit: Number(config.history?.marketLimit ?? 720),

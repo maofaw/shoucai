@@ -30,6 +30,24 @@
     "maxWeeklyCostShare": 0.03,
     "maxPriceSpread": 0.08
   },
+  "exchangeRules": [
+    {
+      "target": "高级燃料",
+      "outputCount": 4,
+      "sources": [
+        { "name": "盒装挂耳咖啡", "count": 1 },
+        { "name": "海盗弯刀", "count": 1 }
+      ]
+    },
+    {
+      "target": "钛合金",
+      "outputCount": 4,
+      "sources": [
+        { "name": "可编程处理器", "count": 1 },
+        { "name": "清新橘味能量凝胶", "count": 1 }
+      ]
+    }
+  ],
   "placeRules": {
     "workbench": {
       "label": "工作台",
