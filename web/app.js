@@ -92,7 +92,7 @@ function recomputeLocalPlan() {
     const setting = state.settings.stations?.[place];
     const defaults = state.data.defaults.placeRules?.[place] || {};
     let hours = setting?.allowedHours || defaults.allowedHours || [];
-    if (place === 'tech') hours = state.settings.techMode === 'short' ? (defaults.shortHours || [4, 8]) : (defaults.longHours || [16, 24]);
+    if (place === 'tech') hours = state.settings.techMode === 'short' ? (defaults.shortHours || [4, 4.5, 6, 7, 8]) : (defaults.longHours || [16, 24]);
     let candidates = (state.data.candidatePools[place] || []).filter(item => hours.includes(Number(item.hours)));
     if (place === 'tech') candidates = candidates.filter(item => state.settings.techMode === 'short' ? item.category !== 'gun' : item.category === 'gun');
     candidates = candidates.map(item => {
@@ -136,7 +136,7 @@ function candidateCard(place, label, main, backup, reason, otherMode) {
 
 function bestOtherTechMode(pool, defaults, setting) {
   const short = state.settings.techMode !== 'short';
-  const hours = short ? (defaults.shortHours || [4, 8]) : (defaults.longHours || [16, 24]);
+  const hours = short ? (defaults.shortHours || [4, 4.5, 6, 7, 8]) : (defaults.longHours || [16, 24]);
   const rows = pool.filter(item => hours.includes(item.hours) && (short ? item.category !== 'gun' : item.category === 'gun'))
     .map(item => ({ ...item,
       conservativeProfit: percentile((item.profitSamplesByRange?.[`${state.settings.historyDays}d`] || item.profitSamples || []).filter(Number.isFinite).sort((a, b) => a - b), state.settings.conservativePercentile / 100) ?? item.conservativeProfit,
@@ -482,6 +482,9 @@ function bindActions() {
       if (place !== 'tech') setting.weeklyRuns = nonNegativeNumber(group.querySelector('[data-runs]').value, 17.5);
     });
     state.settings.stations.tech.runsByHours['4'] = nonNegativeNumber(document.querySelector('#techRuns4').value, 17.5);
+    state.settings.stations.tech.runsByHours['4.5'] = nonNegativeNumber(document.querySelector('#techRuns45').value, 17.5);
+    state.settings.stations.tech.runsByHours['6'] = nonNegativeNumber(document.querySelector('#techRuns6').value, 17.5);
+    state.settings.stations.tech.runsByHours['7'] = nonNegativeNumber(document.querySelector('#techRuns7').value, 17.5);
     state.settings.stations.tech.runsByHours['8'] = nonNegativeNumber(document.querySelector('#techRuns8').value, 17.5);
     localStorage.setItem('shoucai.settings', JSON.stringify(state.settings));
     renderAll();
@@ -549,6 +552,9 @@ function showSettings() {
   setValue('#rate', state.settings.rate);
   setValue('#budget', state.settings.budgetWan);
   setValue('#techMode', state.settings.techMode); setValue('#techRuns4', state.settings.stations.tech.runsByHours['4'] ?? 17.5);
+  setValue('#techRuns45', state.settings.stations.tech.runsByHours['4.5'] ?? 17.5);
+  setValue('#techRuns6', state.settings.stations.tech.runsByHours['6'] ?? 17.5);
+  setValue('#techRuns7', state.settings.stations.tech.runsByHours['7'] ?? 17.5);
   setValue('#techRuns8', state.settings.stations.tech.runsByHours['8'] ?? 17.5);
   setValue('#conservativePercentile', state.settings.conservativePercentile); setValue('#highPercentile', state.settings.highPercentile);
   setValue('#historyDays', state.settings.historyDays);
