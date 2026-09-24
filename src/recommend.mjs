@@ -28,15 +28,21 @@ export function recipeMetrics(recipe, rule = {}) {
   const revenue = Number(recipe.estimated_revenue);
   const fee = Number(recipe.estimated_fee);
   const websiteProfit = Number(recipe.estimated_profit);
+  const native = recipe.native_profit;
   const preferred = isPreferred(recipe, rule);
   const historical = rule.historicalStock;
   const useHistoricalCost = Boolean(preferred && historical?.enabled);
   const effectiveMaterialCost = useHistoricalCost
     ? Number(historical.materialCostPerRun)
     : currentCost;
-  const effectiveProfit = useHistoricalCost
+  const currentProfit = useHistoricalCost
     ? revenue - fee - effectiveMaterialCost
     : websiteProfit;
+  const conservativeProfit = !useHistoricalCost && Number.isFinite(Number(native?.conservativeProfit))
+    ? Number(native.conservativeProfit) : currentProfit;
+  const highProfit = !useHistoricalCost && Number.isFinite(Number(native?.highProfit))
+    ? Number(native.highProfit) : currentProfit;
+  const effectiveProfit = conservativeProfit;
   const runsPerDay = 24 / hours;
   const runsPerWeek = weeklyRunsFor(rule, hours);
 
@@ -48,11 +54,16 @@ export function recipeMetrics(recipe, rule = {}) {
     revenue,
     fee,
     websiteProfit,
+    currentProfit,
+    conservativeProfit,
+    highProfit,
     effectiveMaterialCost,
     effectiveProfit,
     runsPerWeek,
-    dailyProfit: effectiveProfit * runsPerDay,
-    weeklyProfit: effectiveProfit * runsPerWeek,
+    dailyProfit: conservativeProfit * runsPerDay,
+    weeklyProfit: conservativeProfit * runsPerWeek,
+    highWeeklyProfit: highProfit * runsPerWeek,
+    nativeProfit: native ?? null,
     dailyCurrentMaterialCost: currentCost * runsPerDay,
     weeklyCurrentMaterialCost: currentCost * runsPerWeek,
     capitalReturn: effectiveMaterialCost > 0 ? effectiveProfit / effectiveMaterialCost : null,

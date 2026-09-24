@@ -1,6 +1,6 @@
-const CACHE = 'shoucai-v13';
+const CACHE = 'shoucai-v14';
 const DATA = './data/latest.json';
-const SHELL = ['./', './index.html', './styles.css?v=13', './app.js?v=13', './budget.js', './manifest.webmanifest', './runtime-config.js', './favicon.svg', DATA];
+const SHELL = ['./', './index.html', './styles.css?v=14', './app.js?v=14', './budget.js', './manifest.webmanifest', './runtime-config.js', './favicon.svg', DATA];
 
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(SHELL)).then(() => self.skipWaiting()));

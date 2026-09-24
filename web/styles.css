@@ -81,7 +81,11 @@ h2 { font-size: clamp(23px, 5vw, 30px); line-height: 1.25; letter-spacing: -.025
 .harvest-copy span { color: var(--muted); font-size: 12px; }
 .harvest-copy strong { font-size: 20px; font-variant-numeric: tabular-nums; }
 .harvest-copy small { color: var(--faint); }
-.harvest-card .primary-button { grid-column: 1 / -1; }
+.harvest-actions { grid-column: 1 / -1; display: grid; gap: 8px; }
+.harvest-edit { grid-column: 1 / -1; display: grid; gap: 10px; padding-top: 12px; border-top: 1px solid var(--border); }
+.harvest-edit[hidden] { display: none; }
+.harvest-edit div, .settings-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.text-button { min-height: 44px; padding: 8px 12px; border: 0; background: transparent; color: var(--primary-strong); font: inherit; font-weight: 700; cursor: pointer; }
 
 .buy-card { padding: 16px; }
 .buy-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
@@ -139,7 +143,7 @@ h2 { font-size: clamp(23px, 5vw, 30px); line-height: 1.25; letter-spacing: -.025
   .recipe-list, .buy-list { grid-template-columns: 1fr 1fr; }
   .alert-banner { margin-left: auto; margin-right: auto; }
   .harvest-card { grid-template-columns: 48px 1fr auto; }
-  .harvest-card .primary-button { grid-column: auto; width: auto; min-width: 148px; }
+  .harvest-actions { grid-column: auto; width: auto; min-width: 148px; }
 }
 @media (min-width: 1024px) {
   .content { padding-bottom: 118px; }
@@ -238,6 +242,23 @@ h2 { font-size: clamp(23px, 5vw, 30px); line-height: 1.25; letter-spacing: -.025
 .exchange-summary p { margin-top: 8px; font-size: 13px; line-height: 1.55; }
 .exchange-summary p span { display: inline-block; margin-right: 8px; color: var(--primary-strong); font-weight: 800; }
 .exchange-tag { display: inline-flex; margin-top: 9px; padding: 5px 9px; color: var(--primary-strong); background: rgba(91,167,255,.09); border-radius: 999px; font-size: 12px; font-weight: 700; }
+.alternate-mode { display: grid; gap: 4px; margin-top: 12px; padding: 12px; border: 1px solid #285680; border-radius: 12px; background: rgba(32,85,128,.16); }
+.alternate-mode span, .alternate-mode small, .material-recipes { color: var(--muted); font-size: 12px; }
+.settings-card--grouped { display: grid; gap: 12px; }
+.settings-card--grouped details { border: 1px solid var(--border); border-radius: 12px; background: rgba(7,12,20,.35); }
+.settings-card--grouped summary { min-height: 48px; display: flex; align-items: center; padding: 0 14px; font-weight: 800; cursor: pointer; }
+.settings-group { display: grid; gap: 10px; padding: 0 14px 16px; }
+.group-reset { min-height: 44px; margin: 4px 14px 16px; padding: 0 14px; border: 1px solid var(--border); border-radius: 10px; background: transparent; color: var(--muted); font-weight: 700; }
+.settings-group .group-reset { margin: 6px 0 0; }
+.settings-group select, .settings-group input, .harvest-edit input { min-height: 44px; width: 100%; box-sizing: border-box; color: var(--text); background: #0b1220; border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; font: inherit; }
+.station-rule { display: grid; gap: 10px; margin: 0; padding: 12px; border: 1px solid var(--border); border-radius: 10px; }
+.station-rule legend { padding: 0 6px; font-weight: 800; }
+.hour-checks { display: flex; flex-wrap: wrap; gap: 8px; }
+.hour-checks label { min-height: 44px; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; border: 1px solid var(--border); border-radius: 9px; }
+.hour-checks input { width: auto; min-height: auto; }
+.toast { display: flex; align-items: center; gap: 12px; }
+.toast[hidden] { display: none; }
+.toast button { min-height: 40px; border: 0; background: transparent; color: var(--primary-strong); font-weight: 800; cursor: pointer; }
 .acquisition-note { margin-top: 9px; padding: 9px 11px; color: var(--primary-strong); background: rgba(91,167,255,.08); border-radius: 9px; font-size: 12px; line-height: 1.55; }
 .form-error { padding: 9px 11px; color: #ffe4e5; background: #56252a; border: 1px solid var(--danger); border-radius: 8px; }
 .secondary-button { width: 100%; min-height: 48px; margin-top: 14px; color: var(--text); background: var(--surface-3); border: 1px solid var(--border); border-radius: 11px; font-weight: 700; cursor: pointer; }

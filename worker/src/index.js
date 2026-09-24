@@ -18,6 +18,10 @@ export default {
       if (!authorized(request, env, 'ADMIN_KEY')) return cors(json({ status: 'error', message: 'Unauthorized' }, 401), env);
       const key = url.pathname.endsWith('harvest-finished') ? 'lastHarvestFinishedAt' : 'lastSellFinishedAt';
       const body = await request.json().catch(() => ({}));
+      if (Object.hasOwn(body, 'at') && body.at === null) {
+        await env.DB.prepare('DELETE FROM app_state WHERE key = ?').bind(key).run();
+        return cors(json({ status: 'ok', key, value: null }), env);
+      }
       const value = body.at ?? new Date().toISOString();
       await env.DB.prepare(`INSERT INTO app_state (key, value, updated_at) VALUES (?, ?, ?)
         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`)

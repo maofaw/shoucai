@@ -451,6 +451,7 @@ function materialAdvice(profile) {
     perAccount14Days: material.perAccount14Days,
     perAccount30Days: material.perAccount30Days,
     sampleCount: values.length,
+    priceSamples: values.map(value => round(value)),
     weeklyCostSharePercent: weeklyCostShare === null ? null : round(weeklyCostShare * 100, 2),
     priceSpreadPercent: priceSpread === null ? null : round(priceSpread * 100, 1),
     ignored,

@@ -5,6 +5,7 @@ config.json
 /data/
 /logs/
 /reports/
+/.cache/
 worker/wrangler.json
 worker/.wrangler/
 /*.md

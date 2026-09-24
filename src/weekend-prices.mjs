@@ -55,6 +55,35 @@ export function analyzeWeekendSaleHistory(rows, options = {}) {
 }
 
 export function saleScenariosForCandidate(candidate, historyAnalysis) {
+  const native = candidate.nativeProfit ?? candidate.recipe?.native_profit;
+  if (native && Number.isFinite(Number(native.conservativeProfit))) {
+    const conservativeProfit = Number(native.conservativeProfit);
+    const highProfit = Number.isFinite(Number(native.highProfit)) ? Number(native.highProfit) : conservativeProfit;
+    return {
+      ...candidate,
+      conservativeRevenue: Number(candidate.revenue),
+      highRevenue: Number(candidate.revenue),
+      conservativeFee: Number(candidate.fee),
+      highFee: Number(candidate.fee),
+      conservativeProfit,
+      highProfit,
+      conservativeWeeklyProfit: conservativeProfit * candidate.runsPerWeek,
+      highWeeklyProfit: highProfit * candidate.runsPerWeek,
+      priceEvidence: {
+        source: native.source,
+        provisional: Boolean(native.provisional),
+        sampleCount: Number(native.sampleCount ?? 0),
+        observedWeeks: native.weekendOnly ? 2 : 0,
+        lookbackWeeks: 2,
+        range: native.range ?? '15d',
+        weekendOnly: Boolean(native.weekendOnly),
+        lowerPercentile: native.conservativePercentile ?? 0.25,
+        higherPercentile: native.highPercentile ?? 0.75,
+        currentUnitPrice: Number(candidate.recipe?.output_current_price) || null,
+        saleWindows: historyAnalysis?.saleWindows ?? []
+      }
+    };
+  }
   const recipe = candidate.recipe;
   const outputCount = Number(recipe.per_count ?? recipe.output_count ?? 0)
     || Number(candidate.revenue) / Number(recipe.output_current_price);

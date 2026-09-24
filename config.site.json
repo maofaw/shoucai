@@ -23,7 +23,9 @@
     "weekendSellWindowHours": 2,
     "weekendSellMinHour": 9,
     "weekendSellMaxHour": 22,
-    "weekendSellMinimumCoverage": 0.75
+    "weekendSellMinimumCoverage": 0.75,
+    "nativeConservativePercentile": 0.25,
+    "nativeHighPercentile": 0.75
   },
   "buyTiers": [
     { "maxPercentile": 5, "days": 30, "label": "极低价格" },
@@ -65,7 +67,9 @@
     "tech": {
       "label": "技术中心",
       "allowedHours": [16, 24],
-      "weeklyRunsByHours": { "16": 9, "24": 6 },
+      "longHours": [16, 24],
+      "shortHours": [4, 8],
+      "weeklyRunsByHours": { "4": 17.5, "8": 17.5, "16": 9, "24": 6 },
       "preferredNames": ["SVD狙击步枪"]
     },
     "pharmacy": {

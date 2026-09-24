@@ -34,9 +34,6 @@ export function applyExchangePricing(snapshot, rules = [], historiesByMaterial =
       const exchangeOnly = Boolean(rule.exchangeOnly);
       const useExchange = exchangeOnly || (Number.isFinite(exchangeUnitPrice)
         && (!Number.isFinite(moligodUnitPrice) || exchangeUnitPrice < moligodUnitPrice));
-      const effectiveUnitPrice = useExchange
-        ? (Number.isFinite(exchangeUnitPrice) ? exchangeUnitPrice : moligodUnitPrice)
-        : moligodUnitPrice;
       const sourceText = sources.map(source => `${source.count}个${source.name}`).join('＋');
       const acquisition = {
         mode: useExchange ? 'exchange' : 'direct',
@@ -57,26 +54,11 @@ export function applyExchangePricing(snapshot, rules = [], historiesByMaterial =
       };
       return {
         ...material,
-        current_price: effectiveUnitPrice,
         market_current_price: Number.isFinite(moligodUnitPrice) ? moligodUnitPrice : null,
         acquisition
       };
     });
-    const complete = materials.length > 0 && materials.every(material =>
-      Number.isFinite(Number(material.current_price)) && Number.isFinite(Number(material.required_count)));
-    if (!complete) return { ...recipe, materials };
-    const estimatedMaterialCost = materials.reduce((sum, material) =>
-      sum + Number(material.current_price) * Number(material.required_count), 0);
-    const revenue = Number(recipe.estimated_revenue);
-    const fee = Number(recipe.estimated_fee);
-    return {
-      ...recipe,
-      materials,
-      estimated_material_cost: estimatedMaterialCost,
-      estimated_profit: Number.isFinite(revenue) && Number.isFinite(fee)
-        ? revenue - fee - estimatedMaterialCost
-        : recipe.estimated_profit
-    };
+    return { ...recipe, materials };
   });
   return { ...snapshot, recipes };
 }

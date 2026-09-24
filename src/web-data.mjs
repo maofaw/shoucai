@@ -89,8 +89,14 @@ export function buildDashboardData({ snapshot, metadata, recommendations, buyPla
   });
 
   const generatedAtMs = Number(metadata.generatedAtMs ?? metadata.fetchedAtMs ?? generatedAt.getTime());
+  const candidatePools = Object.fromEntries(['workbench', 'tech', 'pharmacy', 'armory'].map(place => [place,
+    snapshot.recipes.filter(recipe => recipe.place === place && Number(recipe.missing_price_count ?? 0) === 0)
+      .map(recipe => publicCandidate(recipe, config.placeRules?.[place] ?? {}))
+      .filter(Boolean)
+      .sort((a, b) => a.hours - b.hours || b.conservativeProfit - a.conservativeProfit)
+  ]));
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     generatedAt: new Date(generatedAtMs).toISOString(),
     builtAt: generatedAt.toISOString(),
     staleAfterHours: Number(config.dashboard?.staleAfterHours ?? 4),
@@ -104,8 +110,17 @@ export function buildDashboardData({ snapshot, metadata, recommendations, buyPla
       sharedAccounts: Number(config.dashboard?.defaultSharedAccounts ?? 10),
       ownerSharePercent: Number(config.dashboard?.defaultOwnerSharePercent ?? 80),
       buyBudgetPerAccount: Number(config.dashboard?.defaultBuyBudgetPerAccount ?? 10_000_000),
-      haffPerCnyWan: Number(config.dashboard?.defaultHaffPerCnyWan ?? 52)
+      haffPerCnyWan: Number(config.dashboard?.defaultHaffPerCnyWan ?? 52),
+      nativeConservativePercentile: Number(config.dashboard?.nativeConservativePercentile ?? 0.25),
+      nativeHighPercentile: Number(config.dashboard?.nativeHighPercentile ?? 0.75),
+      placeRules: Object.fromEntries(Object.entries(config.placeRules ?? {}).map(([place, rule]) => [place, {
+        label: rule.label,
+        allowedHours: rule.allowedHours ?? [], longHours: rule.longHours ?? [], shortHours: rule.shortHours ?? [],
+        weeklyRuns: rule.weeklyRuns ?? null, weeklyRunsByHours: rule.weeklyRunsByHours ?? {},
+        preferredNames: rule.preferredNames ?? [], switchThreshold: Number(rule.switchThreshold ?? config.switchThreshold ?? 0.05)
+      }]))
     },
+    candidatePools,
     plan: {
       locked: false,
       basis: '最近4个周末较低25%成交价；样本不足时使用当前行情临时估算',
@@ -152,6 +167,34 @@ export function buildDashboardData({ snapshot, metadata, recommendations, buyPla
     market: null
   };
 }
+
+function publicCandidate(recipe, rule) {
+  const currentProfit = Number(recipe.estimated_profit);
+  if (!Number.isFinite(currentProfit)) return null;
+  const native = recipe.native_profit ?? {};
+  return {
+    id: Number(recipe.id), formulaId: Number(recipe.formula_id), name: String(recipe.output_display_name || recipe.output_name),
+    place: recipe.place, hours: Number(recipe.period_hours),
+    category: recipe.output_category ?? (recipe.place === 'tech' ? (Number(recipe.period_hours) >= 16 ? 'gun' : 'accessory') : null),
+    outputCount: Number(recipe.per_count), currentCost: round(recipe.estimated_material_cost),
+    currentRevenue: round(recipe.estimated_revenue), currentFee: round(recipe.estimated_fee), currentProfit: round(currentProfit),
+    todayMaxProfit: round(recipe.today_max_profit), sevenDayMaxProfit: round(recipe.seven_day_max_profit),
+    conservativeProfit: round(native.conservativeProfit ?? currentProfit), highProfit: round(native.highProfit ?? currentProfit),
+    profitSamples: Array.isArray(native.profitSamples) ? native.profitSamples.map(value => round(value)).filter(Number.isFinite) : [],
+    profitSamplesByRange: Object.fromEntries(Object.entries(native.profitSamplesByRange ?? {}).map(([range, values]) => [range,
+      values.map(value => round(value)).filter(Number.isFinite)
+    ])),
+    evidence: { source: native.source ?? 'Moligod 当前配方快照', sampleCount: Number(native.sampleCount ?? 0),
+      weekendOnly: Boolean(native.weekendOnly), provisional: Boolean(native.provisional ?? true), range: native.range ?? null },
+    preferred: (rule.preferredNames ?? []).some(name => normalize(name) === normalize(recipe.output_display_name || recipe.output_name)),
+    materials: (recipe.materials ?? []).map(material => ({
+      name: String(material.display_name || material.name), count: Number(material.required_count),
+      currentPrice: round(material.current_price), acquisition: material.acquisition ?? null
+    }))
+  };
+}
+
+function normalize(value) { return String(value ?? '').toLowerCase().replace(/[\s·×*（）()]/g, ''); }
 
 function round(value, digits = 0) {
   if (!Number.isFinite(Number(value))) return null;

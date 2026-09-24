@@ -8,6 +8,7 @@ import { buildPortfolioSaleTiming, enrichRecommendationsWithWeekendPrices } from
 import { buildWeeklyBuyAdvice, materialNamesForSelectedRecipes } from './buy-window.mjs';
 import { applyExchangePricing } from './exchange-pricing.mjs';
 import { buildDashboardData } from './web-data.mjs';
+import { enrichSnapshotWithNativeProfit } from './native-profit.mjs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const configName = process.env.DASHBOARD_CONFIG ?? 'config.site.json';
@@ -27,7 +28,8 @@ const exchangeHistories = Object.fromEntries(await Promise.all(exchangeSourceNam
     return [name, []];
   }
 })));
-const snapshot = applyExchangePricing(rawSnapshot, config.exchangeRules, exchangeHistories);
+const historySnapshot = await enrichSnapshotWithNativeProfit(rawSnapshot, config, { concurrency: 3, cacheHours: 12 });
+const snapshot = applyExchangePricing(historySnapshot, config.exchangeRules, exchangeHistories);
 const baseRecommendations = buildRecommendations(snapshot, config);
 const recommendations = await enrichRecommendationsWithWeekendPrices(baseRecommendations, config);
 const sellPlan = buildPortfolioSaleTiming(recommendations, config);

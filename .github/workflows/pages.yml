@@ -26,12 +26,24 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Restore Moligod history cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .cache/moligod-item-details
+          key: moligod-details-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            moligod-details-${{ runner.os }}-
       - name: Test
         run: npm test
       - name: Refresh market data
         run: npm run build:web
         env:
           DASHBOARD_CONFIG: config.site.json
+      - name: Save Moligod history cache
+        uses: actions/cache/save@v4
+        with:
+          path: .cache/moligod-item-details
+          key: moligod-details-${{ runner.os }}-${{ github.run_id }}
       - name: Send actionable buy alerts
         continue-on-error: true
         run: npm run notify:buy
