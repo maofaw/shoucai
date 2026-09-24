@@ -23,3 +23,14 @@ test('native profit marks missing history provisional instead of inventing data'
   assert.equal(result.conservativeProfit, null);
   assert.equal(result.provisional, true);
 });
+
+test('null historical profits do not become zero and sparse history falls back to current', () => {
+  const result=analyzeNativeProfit({id:8,estimated_profit:123}, {crafting:{recipes:[{recipe_id:8,charts:{profit:{ranges:{'15d':[{time:'09-19 12:00',profit:null},{time:'09-19 13:00',profit:400}]}}}}]}});
+  assert.equal(result.sampleCount,1); assert.equal(result.conservativeProfit,123); assert.equal(result.provisional,true);
+});
+
+test('weekend classification handles December history viewed in January', () => {
+  const rows=Array.from({length:24},(_,hour)=>({time:`12-27 ${String(hour).padStart(2,'0')}:00`,profit:100}));
+  const result=analyzeNativeProfit({id:8,estimated_profit:100},{crafting:{recipes:[{recipe_id:8,charts:{profit:{ranges:{'15d':rows}}}}]}},{now:new Date('2026-01-02T00:00:00Z')});
+  assert.equal(result.weekendOnly,true);
+});

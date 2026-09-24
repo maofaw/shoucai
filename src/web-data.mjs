@@ -1,6 +1,6 @@
 import { stockEstimate } from './recommend.mjs';
 
-const WEEKS_PER_MONTH = 4.33;
+const WEEKS_PER_MONTH = 30 / 7;
 
 const ACTION_LABELS = {
   buy: '现在适合囤货',
@@ -10,7 +10,7 @@ const ACTION_LABELS = {
   error: '暂时无法判断'
 };
 
-export function buildDashboardData({ snapshot, metadata, recommendations, buyPlan = null, sellPlan = null, config, generatedAt = new Date() }) {
+export function buildDashboardData({ snapshot, metadata, recommendations, buyPlan = null, sellPlan = null, historiesByMaterial = {}, config, generatedAt = new Date() }) {
   const recipeCards = recommendations.map(item => {
     const main = item.cashSelected ?? item.selected;
     if (!main) return { place: item.place, label: item.label, unavailable: true };
@@ -95,8 +95,12 @@ export function buildDashboardData({ snapshot, metadata, recommendations, buyPla
       .filter(Boolean)
       .sort((a, b) => a.hours - b.hours || b.conservativeProfit - a.conservativeProfit)
   ]));
+  for (const item of recommendations) for (const candidate of item.cashCandidates ?? item.candidates ?? []) {
+    const row = candidatePools[item.place]?.find(row => row.id === Number(candidate.recipe?.id));
+    if (row) row.saleWindows = candidate.priceEvidence?.saleWindows ?? [];
+  }
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     generatedAt: new Date(generatedAtMs).toISOString(),
     builtAt: generatedAt.toISOString(),
     staleAfterHours: Number(config.dashboard?.staleAfterHours ?? 4),
@@ -121,9 +125,12 @@ export function buildDashboardData({ snapshot, metadata, recommendations, buyPla
       }]))
     },
     candidatePools,
+    materialHistories: Object.fromEntries(Object.entries(historiesByMaterial).map(([name, rows]) => [name,
+      rows.map(row => ({ time: row.time, avg: row.avg, last: row.last }))
+    ])),
     plan: {
       locked: false,
-      basis: '最近4个周末较低25%成交价；样本不足时使用当前行情临时估算',
+      basis: 'Moligod 原生15天周末净利润分位；历史不足时使用当前净利润临时估算',
       recipes: recipeCards,
       profit: {
         conservativeWeeklyPerAccount: round(conservativeWeekly),
@@ -137,8 +144,8 @@ export function buildDashboardData({ snapshot, metadata, recommendations, buyPla
         noStockWeeklyPerAccount: round(conservativeWeekly),
         noStockDailyPerAccount: round(conservativeWeekly / 7),
         basis: evidenceReady
-          ? '材料按当前价，成品按最近4个周末的偏低价与较高常见价估算'
-          : '部分成品历史样本不足，暂以当前售价估算；材料均按当前价',
+          ? 'Moligod 原生15天周末净利润25%/75%分位；实际收益随买卖价格变化'
+          : '部分原生收益历史不足，暂以当前净利润估算',
         provisional: !evidenceReady
       }
     },
@@ -170,7 +177,7 @@ export function buildDashboardData({ snapshot, metadata, recommendations, buyPla
 
 function publicCandidate(recipe, rule) {
   const currentProfit = Number(recipe.estimated_profit);
-  if (!Number.isFinite(currentProfit)) return null;
+  if (recipe.estimated_profit == null || recipe.estimated_profit === '' || !Number.isFinite(currentProfit)) return null;
   const native = recipe.native_profit ?? {};
   return {
     id: Number(recipe.id), formulaId: Number(recipe.formula_id), name: String(recipe.output_display_name || recipe.output_name),
@@ -184,6 +191,7 @@ function publicCandidate(recipe, rule) {
     profitSamplesByRange: Object.fromEntries(Object.entries(native.profitSamplesByRange ?? {}).map(([range, values]) => [range,
       values.map(value => round(value)).filter(Number.isFinite)
     ])),
+    evidenceByRange: native.evidenceByRange ?? {},
     evidence: { source: native.source ?? 'Moligod 当前配方快照', sampleCount: Number(native.sampleCount ?? 0),
       weekendOnly: Boolean(native.weekendOnly), provisional: Boolean(native.provisional ?? true), range: native.range ?? null },
     preferred: (rule.preferredNames ?? []).some(name => normalize(name) === normalize(recipe.output_display_name || recipe.output_name)),
@@ -197,7 +205,7 @@ function publicCandidate(recipe, rule) {
 function normalize(value) { return String(value ?? '').toLowerCase().replace(/[\s·×*（）()]/g, ''); }
 
 function round(value, digits = 0) {
-  if (!Number.isFinite(Number(value))) return null;
+  if (value == null || value === '' || !Number.isFinite(Number(value))) return null;
   const factor = 10 ** digits;
   return Math.round(Number(value) * factor) / factor;
 }

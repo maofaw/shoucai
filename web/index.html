@@ -8,7 +8,7 @@
   <title>三角洲收菜助手</title>
   <link rel="icon" type="image/svg+xml" href="./favicon.svg">
   <link rel="manifest" href="./manifest.webmanifest">
-  <link rel="stylesheet" href="./styles.css?v=15">
+  <link rel="stylesheet" href="./styles.css?v=16">
 </head>
 <body>
   <a class="skip-link" href="#main">跳到主要内容</a>
@@ -31,12 +31,13 @@
   <main id="main" class="content" tabindex="-1">
     <section class="view is-active" data-view="home" aria-labelledby="home-title">
       <div class="section-heading"><div><p class="eyebrow">已扣除分成</p><h2 id="home-title" tabindex="-1">预计到手利润</h2></div></div>
-      <div class="profit-grid" aria-label="按目前材料价格计算的预计利润">
-        <article id="monthlyCard" class="profit-card profit-card--accent profit-card--monthly"><span class="profit-card__label">月保守预计 · 30天</span><strong id="conservativeMonthly" class="profit-card__value">--</strong><p id="conservativeMonthlyCny" class="profit-card__cny">约 -- 元</p><small class="profit-card__hint">按一周保守预计 × 4.33 换算</small></article>
+      <div class="profit-grid" aria-label="按原生历史净利润计算的预计收益">
+        <article id="monthlyCard" class="profit-card profit-card--accent profit-card--monthly"><span class="profit-card__label">月保守预计 · 30天</span><strong id="conservativeMonthly" class="profit-card__value">--</strong><p id="conservativeMonthlyCny" class="profit-card__cny">约 -- 元</p><small class="profit-card__hint">按日均 × 30天；历史估算不代表保证收益</small></article>
         <article id="conservativeCard" class="profit-card profit-card--weekly"><span class="profit-card__label">一周保守</span><strong id="conservativeWeekly" class="profit-card__value">--</strong><p id="conservativeCny" class="profit-card__cny">约 -- 元</p></article>
         <article id="highCard" class="profit-card profit-card--weekly"><span class="profit-card__label">一周较高</span><strong id="highWeekly" class="profit-card__value">--</strong><p id="highCny" class="profit-card__cny">约 -- 元</p></article>
       </div>
-      <p id="profitBasis" class="profit-basis">按现在买料、周末卖出的历史价格估算。</p>
+      <p id="profitBasis" class="profit-basis">正在读取原生收益历史…</p>
+      <details class="profit-details"><summary>查看单号利润和未分成总额</summary><div id="profitBreakdown" class="detail-list"></div></details>
       <div class="daily-summary"><span>日均到手</span><strong id="dailyRange">--</strong><small>按你的收菜频率折算</small></div>
       <article class="harvest-card">
         <div class="card-icon"><svg class="icon"><use href="#i-clock"/></svg></div>
@@ -80,6 +81,7 @@
     <section class="view" data-view="settings" aria-labelledby="settings-title" hidden>
       <div class="section-heading"><div><p class="eyebrow">在这台设备上保存</p><h2 id="settings-title" tabindex="-1">计算设置</h2></div></div>
       <form id="settingsForm" class="settings-card settings-card--grouped">
+        <p id="settingsStatus" class="settings-status" role="status">修改后点击底部“保存并立即重算”。设置只保存在当前设备。</p>
         <details open><summary>基础计算</summary><div class="settings-group">
           <label for="accounts">一共多少个号</label><input id="accounts" name="accounts" type="number" inputmode="numeric" min="1" max="999" step="1" required>
           <label for="sharedAccounts">其中有多少个号需要分成</label><input id="sharedAccounts" name="sharedAccounts" type="number" inputmode="numeric" min="0" max="999" step="1" required>
@@ -88,14 +90,12 @@
           <label for="budget">每个号本次最多花多少买料</label><div class="input-suffix"><input id="budget" name="budget" type="number" inputmode="decimal" min="0" step="0.1" required><span>万哈夫币</span></div>
           <button class="group-reset" type="button" data-reset-group="basic">恢复本组默认</button>
         </div></details>
-        <details><summary>四台制造规则</summary><div id="stationSettings" class="settings-group"></div><button class="group-reset" type="button" data-reset-group="stations">恢复本组默认</button></details>
+        <details><summary>工作台、制药台、防具台</summary><div id="stationSettings" class="settings-group"></div><button class="group-reset" type="button" data-reset-group="stations">恢复本组默认</button></details>
         <details><summary>技术中心模式</summary><div class="settings-group">
           <label for="techMode">当前模式</label><select id="techMode"><option value="long">长时枪械（16/24小时）</option><option value="short">短时配件（4–8小时）</option></select>
-          <label for="techRuns4">4小时每周实际收取轮数</label><input id="techRuns4" type="number" min="0.5" max="42" step="0.5">
-          <label for="techRuns45">4.5小时每周实际收取轮数</label><input id="techRuns45" type="number" min="0.5" max="42" step="0.5">
-          <label for="techRuns6">6小时每周实际收取轮数</label><input id="techRuns6" type="number" min="0.5" max="28" step="0.5">
-          <label for="techRuns7">7小时每周实际收取轮数</label><input id="techRuns7" type="number" min="0.5" max="24" step="0.5">
-          <label for="techRuns8">8小时每周实际收取轮数</label><input id="techRuns8" type="number" min="0.5" max="21" step="0.5">
+          <label for="techThreshold">换配方门槛</label><div class="input-suffix"><input id="techThreshold" type="number" min="0" max="100" step="0.5" required><span>%</span></div>
+          <small>两种模式分别保存允许时长、常用配方和周轮数。短时默认每周17.5轮。</small>
+          <div id="techSettings"></div>
           <button class="group-reset" type="button" data-reset-group="tech">恢复本组默认</button>
         </div></details>
         <details><summary>利润口径</summary><div class="settings-group">
@@ -113,8 +113,8 @@
           <label for="stableSpread">隐藏材料最高价格波动</label><div class="input-suffix"><input id="stableSpread" type="number" min="0" max="50" step="0.5"><span>%</span></div>
           <button class="group-reset" type="button" data-reset-group="buy">恢复本组默认</button>
         </div></details>
-        <div class="settings-actions"><button id="resetSettings" class="secondary-button" type="button">恢复全部默认</button><button class="primary-button" type="submit">保存并立即重算</button></div>
         <p id="settingsError" class="form-error" role="alert" hidden></p>
+        <div class="settings-actions"><button class="primary-button" type="submit">保存并立即重算</button><button id="resetSettings" class="secondary-button" type="button">恢复全部默认</button></div>
       </form>
       <article class="source-card"><span>行情来源与更新时间</span><a id="sourceLink" href="https://moligod.com/crafting" target="_blank" rel="noreferrer">Moligod 特勤处制造</a><small id="sourceTime">--</small></article>
     </section>
@@ -127,6 +127,6 @@
   </nav>
   <div id="toast" class="toast" role="status" aria-live="polite" hidden><span id="toastMessage"></span><button id="toastAction" type="button" hidden>撤销</button></div>
   <script src="./runtime-config.js"></script>
-  <script type="module" src="./app.js?v=15"></script>
+  <script type="module" src="./app.js?v=16"></script>
 </body>
 </html>

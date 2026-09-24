@@ -5,10 +5,12 @@ import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'web');
 const port = Number(process.env.PORT ?? 4173);
-const types = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json; charset=utf-8', '.webmanifest': 'application/manifest+json' };
+const types = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.json': 'application/json; charset=utf-8', '.webmanifest': 'application/manifest+json', '.svg': 'image/svg+xml' };
 
 const server = http.createServer((request, response) => {
-  const pathname = decodeURIComponent(new URL(request.url, `http://${request.headers.host}`).pathname);
+  let pathname;
+  try { pathname = decodeURIComponent(new URL(request.url, `http://${request.headers.host}`).pathname); }
+  catch { response.writeHead(400).end('Invalid URL'); return; }
   const relative = pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, '');
   const file = path.resolve(root, relative);
   if (!file.startsWith(root + path.sep) && file !== path.join(root, 'index.html')) {

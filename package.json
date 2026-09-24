@@ -10,6 +10,7 @@
     "build:web": "node src/build-web.mjs",
     "notify:buy": "node scripts/send-buy-alerts.mjs",
     "serve:web": "node scripts/serve-web.mjs",
+    "pretest": "node scripts/sync-web-engine.mjs",
     "test": "node --test",
     "task:install": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-scheduled-task.ps1",
     "task:remove": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/remove-scheduled-task.ps1"

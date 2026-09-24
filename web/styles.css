@@ -226,7 +226,7 @@ h2 { font-size: clamp(23px, 5vw, 30px); line-height: 1.25; letter-spacing: -.025
 .material-action { padding: 5px 9px; border-radius: 999px; color: var(--warning); background: rgba(255,199,102,.1); font-size: 12px; white-space: nowrap; }
 .material-action.is-buy { color: var(--success); background: rgba(96,214,167,.12); }
 .material-reason { margin-top: 8px; color: var(--muted); font-size: 13px; line-height: 1.55; }
-.material-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 13px; padding-top: 12px; border-top: 1px solid var(--border); }
+.material-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 13px; padding-top: 12px; border-top: 1px solid var(--border); }
 .material-metrics span, .material-metrics strong { display: block; }
 .material-metrics span { color: var(--faint); font-size: 12px; line-height: 1.4; }
 .material-metrics strong { margin-top: 4px; font-size: 15px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
@@ -248,6 +248,15 @@ h2 { font-size: clamp(23px, 5vw, 30px); line-height: 1.25; letter-spacing: -.025
 .settings-card--grouped details { border: 1px solid var(--border); border-radius: 12px; background: rgba(7,12,20,.35); }
 .settings-card--grouped summary { min-height: 48px; display: flex; align-items: center; padding: 0 14px; font-weight: 800; cursor: pointer; }
 .settings-group { display: grid; gap: 10px; padding: 0 14px 16px; }
+.settings-group, .station-rule, .input-suffix { min-width: 0; }
+.settings-group select, .settings-group input { min-width: 0; max-width: 100%; }
+#techSettings { display: grid; gap: 16px; min-width: 0; }
+.settings-status { color: var(--muted); font-size: 13px; line-height: 1.6; }
+.settings-actions { position: sticky; bottom: calc(78px + env(safe-area-inset-bottom)); padding: 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); z-index: 5; }
+.settings-actions .secondary-button { margin-top: 0; }
+.profit-details { margin-top: 12px; padding: 0 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+.profit-details summary, .ignored-material-note summary { min-height: 44px; padding: 10px 0; cursor: pointer; color: var(--primary-strong); font-size: 14px; }
+button:focus-visible, select:focus-visible, summary:focus-visible { outline: 3px solid var(--primary); outline-offset: 2px; }
 .group-reset { min-height: 44px; margin: 4px 14px 16px; padding: 0 14px; border: 1px solid var(--border); border-radius: 10px; background: transparent; color: var(--muted); font-weight: 700; }
 .settings-group .group-reset { margin: 6px 0 0; }
 .settings-group select, .settings-group input, .harvest-edit input { min-height: 44px; width: 100%; box-sizing: border-box; color: var(--text); background: #0b1220; border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; font: inherit; }
@@ -258,7 +267,7 @@ h2 { font-size: clamp(23px, 5vw, 30px); line-height: 1.25; letter-spacing: -.025
 .hour-checks input { width: auto; min-height: auto; }
 .toast { display: flex; align-items: center; gap: 12px; }
 .toast[hidden] { display: none; }
-.toast button { min-height: 40px; border: 0; background: transparent; color: var(--primary-strong); font-weight: 800; cursor: pointer; }
+.toast button { min-height: 44px; min-width: 44px; border: 0; background: transparent; color: var(--primary-strong); font-weight: 800; cursor: pointer; }
 .acquisition-note { margin-top: 9px; padding: 9px 11px; color: var(--primary-strong); background: rgba(91,167,255,.08); border-radius: 9px; font-size: 12px; line-height: 1.55; }
 .form-error { padding: 9px 11px; color: #ffe4e5; background: #56252a; border: 1px solid var(--danger); border-radius: 8px; }
 .secondary-button { width: 100%; min-height: 48px; margin-top: 14px; color: var(--text); background: var(--surface-3); border: 1px solid var(--border); border-radius: 11px; font-weight: 700; cursor: pointer; }
@@ -267,6 +276,6 @@ h2 { font-size: clamp(23px, 5vw, 30px); line-height: 1.25; letter-spacing: -.025
 }
 @media (max-width: 480px) {
   .material-metrics { grid-template-columns: 1fr 1fr; }
-  .material-metrics > div:last-child { grid-column: 1 / -1; padding-top: 8px; border-top: 1px dashed var(--border); }
+  .material-metrics > div:last-child { grid-column: auto; }
 }
 @media (max-width: 380px) { .app-header { align-items: flex-start; } .status-pill { white-space: normal; text-align: center; } .material-metrics strong { font-size: 14px; } }

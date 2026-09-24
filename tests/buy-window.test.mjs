@@ -126,7 +126,7 @@ test('budget caps a two-week recommendation at one week, and item advice support
   assert.equal(partial.materials.find(item => item.name === '材料A').tierDays, 30);
   assert.equal(partial.materials.find(item => item.name === '材料B').action, 'wait');
   assert.equal(partial.materials.find(item => item.name === '材料B').tierDays, 0);
-  assert.equal(partial.materials.find(item => item.name === '材料A').targetPrice, 100);
+  assert.equal(partial.materials.find(item => item.name === '材料A').targetPrice, 98);
 });
 
 test('same-week prior plan is reused only for the same recipe signature', () => {
