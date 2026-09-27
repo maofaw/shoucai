@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { migrateSettings, calculatePlan, rankCandidates, chooseCandidate, sortMaterials, adoptProposal, adoptRecipe,
-  validStockedMaterials, saveStockedMaterial, removeStockedMaterial } from '../web/planner.js';
+  validStockedMaterials, saveStockedMaterial, removeStockedMaterial, materialStability, productStability } from '../web/planner.js';
 
 const defaults = { accounts: 28, sharedAccounts: 10, ownerSharePercent: 80, haffPerCnyWan: 52, placeRules: {
   workbench: { label: '工作台', allowedHours: [8], weeklyRuns: 17.5 },
@@ -20,9 +20,40 @@ test('migration preserves accounts, zero owner share, mode-specific rules and ex
   assert.equal(settings.accounts, 32); assert.equal(settings.sharedAccounts, 12); assert.equal(settings.userShare, 0);
   assert.equal(settings.stations.workbench.preferred, ''); assert.equal(settings.stations.tech.runsByHours[8], 12);
   assert.equal(settings.stations.tech.runsByHours[6], 17.5); assert.equal(settings.stations.tech.shortPreferred, '配件');
-  assert.equal(settings.shortWeeklyRuns, 12); assert.equal(settings.version, 7);
+  assert.equal(settings.shortWeeklyRuns, 12); assert.equal(settings.version, 8); assert.equal(settings.lazySwitchThreshold, 10);
   const fresh = migrateSettings(null, defaults);
   assert.equal(fresh.accounts, 0); assert.equal(fresh.sharedAccounts, 0); assert.equal(fresh.userShare, 100);
+});
+
+function marketTime(date) {
+  const shifted = new Date(date.getTime() + 8 * 3_600_000);
+  return `${String(shifted.getUTCMonth() + 1).padStart(2,'0')}-${String(shifted.getUTCDate()).padStart(2,'0')} ${String(shifted.getUTCHours()).padStart(2,'0')}:00`;
+}
+
+test('long-term material evidence requires repeated weekly lows and sufficient 30-day coverage', () => {
+  const now = new Date('2026-09-27T00:00:00Z');
+  const stable = Array.from({ length: 30 * 24 }, (_, offset) => {
+    const at = new Date(now.getTime() - (30 * 24 - offset) * 3_600_000);
+    const hour = new Date(at.getTime() + 8 * 3_600_000).getUTCHours();
+    const value = hour < 4 ? 80 : 100;
+    return { time: marketTime(at), avg: value, last: value };
+  });
+  const evidence = materialStability('重复低价材料', 100, stable, now);
+  assert.equal(evidence.stable, true); assert.ok(evidence.repeatWeeks >= 3); assert.ok(evidence.sampleCount >= 504);
+  const oneOff = stable.map((row, index) => ({ ...row, avg: index < 7 * 24 && index % 24 < 4 ? 60 : 100, last: index < 7 * 24 && index % 24 < 4 ? 60 : 100 }));
+  assert.equal(materialStability('一次暴跌材料', 100, oneOff, now).stable, false);
+});
+
+test('lazy candidates require two profitable and consistent seven-day windows', () => {
+  const now = new Date('2026-09-27T00:00:00Z');
+  const rows = Array.from({ length: 15 * 24 }, (_, offset) => ({
+    time: new Date(now.getTime() - (15 * 24 - offset) * 3_600_000).toISOString(), profit: 100, cost: 50, revenue: 170
+  }));
+  const candidate = sample(1, 'workbench', { pairedHistoryByRange: { '15d': rows } });
+  const settings = migrateSettings({}, defaults);
+  assert.equal(productStability(candidate, settings, now).stable, true);
+  const broken = { ...candidate, pairedHistoryByRange: { '15d': rows.map(row => ({ ...row, profit: Date.parse(row.time) >= now.getTime() - 7 * 86_400_000 ? 20 : 100 })) } };
+  assert.equal(productStability(broken, settings, now).stable, false);
 });
 
 test('stock records validate, update and remove without changing other settings', () => {

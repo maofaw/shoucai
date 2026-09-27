@@ -1,5 +1,6 @@
 import { buildWeeklyBuyAdvice, buildMaterialPriceProfile } from './engine/buy-window.mjs';
 import { buildPortfolioSaleTiming } from './engine/weekend-prices.mjs';
+import { combineHistories } from './engine/market-history.mjs';
 import { procurement, profitScenario, totalScenarios } from './scenarios.js';
 
 export const PLACES = ['workbench', 'tech', 'pharmacy', 'armory'];
@@ -48,7 +49,7 @@ export function migrateSettings(saved = null, defaults = {}) {
   const buy7 = bounded(saved.buy7, 30, 1, 50);
   const buy14 = bounded(saved.buy14, 15, 1, buy7);
   return {
-    version: 7, accounts, sharedAccounts: Math.floor(bounded(saved.sharedAccounts, hasSavedSettings ? defaults.sharedAccounts ?? 0 : 0, 0, accounts)),
+    version: 8, accounts, sharedAccounts: Math.floor(bounded(saved.sharedAccounts, hasSavedSettings ? defaults.sharedAccounts ?? 0 : 0, 0, accounts)),
     shortWeeklyRuns: bounded(legacyShortRuns, defaults.shortWeeklyRuns ?? 17.5, 0.5, 42),
     scenarioDays: [7,14,30].includes(Number(saved.scenarioDays)) ? Number(saved.scenarioDays) : 7,
     userShare: bounded(saved.userShare, hasSavedSettings ? defaults.ownerSharePercent ?? 100 : 100, 0, 100),
@@ -59,7 +60,8 @@ export function migrateSettings(saved = null, defaults = {}) {
     highPercentile: bounded(saved.highPercentile, 75, 51, 99),
     historyDays: [1, 7, 15].includes(Number(saved.historyDays)) ? Number(saved.historyDays) : 15,
     buy7, buy14, buy30: bounded(saved.buy30, 5, 1, buy14),
-    stableShare: bounded(saved.stableShare, 3, 0, 20), stableSpread: bounded(saved.stableSpread, 8, 0, 50)
+    stableShare: bounded(saved.stableShare, 3, 0, 20), stableSpread: bounded(saved.stableSpread, 8, 0, 50),
+    lazySwitchThreshold: bounded(saved.lazySwitchThreshold, 10, 0, 100)
   };
 }
 
@@ -238,10 +240,10 @@ function stockedProfiles(stocked, catalog, horizonDays) {
   }) };
 }
 
-function bestPortfolio(pools, settings, profiles = null) {
+function bestPortfolio(pools, settings, profiles = null, predicate = null) {
   const selected = [];
   for (const place of PLACES) {
-    const rows = (pools[place] ?? []).map(candidate => {
+    const rows = (pools[place] ?? []).filter(candidate => !predicate || predicate(candidate)).map(candidate => {
       const base = candidate.scenario ?? profitScenario(candidate, settings);
       const purchase = profiles && base ? procurement(candidate, settings.scenarioDays ?? 7, profiles) : null;
       const weeklyCost = purchase ? purchase.cost * 7 / (settings.scenarioDays ?? 7) : null;
@@ -255,6 +257,86 @@ function bestPortfolio(pools, settings, profiles = null) {
     selected.push(rows[0]);
   }
   return selected;
+}
+
+function median(values) { return quantile(values, 0.5); }
+function relativeDifference(a, b) {
+  const middle = (Math.abs(a) + Math.abs(b)) / 2;
+  return middle > 0 ? Math.abs(a - b) / middle : 0;
+}
+
+export function materialStability(name, currentPrice, history, now) {
+  const points = combineHistories([{ name, count: 1, rows: history ?? [] }], now)
+    .filter(point => Number.isFinite(point.value) && point.value >= 0)
+    .sort((a, b) => a.date - b.date);
+  const cutoff = now.getTime() - 30 * 86_400_000;
+  const recent = points.filter(point => point.date.getTime() >= cutoff);
+  const sampleCount = recent.length;
+  const coveredDays = sampleCount > 1 ? (recent.at(-1).date - recent[0].date) / 86_400_000 : 0;
+  const weekly = [];
+  for (let index = 0; index < 4; index += 1) {
+    const start = now.getTime() - (28 - index * 7) * 86_400_000;
+    const end = start + 7 * 86_400_000;
+    const values = recent.filter(point => point.date.getTime() >= start && point.date.getTime() < end).map(point => point.value);
+    if (values.length >= 120) weekly.push({ index, samples: values.length, low: quantile(values, 0.15), median: median(values) });
+  }
+  const lows = weekly.map(row => row.low).filter(value => value != null);
+  const targetPrice = median(lows);
+  const monthMedian = median(recent.map(point => point.value));
+  const lowDeviation = lows.length > 1 && targetPrice > 0 ? (Math.max(...lows) - Math.min(...lows)) / targetPrice : Infinity;
+  const repeatWeeks = targetPrice == null ? 0 : weekly.filter(row => {
+    const start = now.getTime() - (28 - row.index * 7) * 86_400_000;
+    const end = start + 7 * 86_400_000;
+    return recent.filter(point => point.date.getTime() >= start && point.date.getTime() < end && point.value <= targetPrice * 1.03).length >= 3;
+  }).length;
+  const stable = sampleCount >= 504 && coveredDays >= 21 && weekly.length >= 3 && repeatWeeks >= 3 && lowDeviation <= 0.15
+    && targetPrice != null && monthMedian != null && targetPrice <= monthMedian * 0.98;
+  const split = now.getTime() - 72 * 3_600_000;
+  const latest = recent.filter(point => point.date.getTime() >= split).map(point => point.value);
+  const earlier = recent.filter(point => point.date.getTime() < split).map(point => point.value);
+  const recentMedian = median(latest), earlierMedian = median(earlier);
+  const latestIqr = quantile(latest, 0.75) - quantile(latest, 0.25);
+  const earlierIqr = quantile(earlier, 0.75) - quantile(earlier, 0.25);
+  const priceShift = recentMedian != null && earlierMedian > 0 ? Math.abs(recentMedian / earlierMedian - 1) : 0;
+  const volatilityJump = latest.length >= 48 && earlier.length >= 120 && (earlierIqr > 0
+    ? latestIqr > earlierIqr * 2 : latestIqr > Math.max(1, earlierMedian * 0.02));
+  return { stable, sampleCount, coveredDays, completeWeeks: weekly.length, repeatWeeks, weeklyLowPrices: lows,
+    targetPrice, monthMedian, lowDeviationPercent: Number.isFinite(lowDeviation) ? lowDeviation * 100 : null,
+    currentPrice, anomalous: priceShift > 0.20 || volatilityJump, priceShiftPercent: priceShift * 100,
+    volatilityJump, reason: stable ? `近30天覆盖${coveredDays.toFixed(0)}天，低价在${repeatWeeks}周重复出现` :
+      sampleCount < 504 || coveredDays < 21 ? '30天样本或覆盖天数不足' : weekly.length < 3 ? '完整周数不足3周' :
+      repeatWeeks < 3 ? '低价没有在至少3周重复出现' : lowDeviation > 0.15 ? '各周低价差异超过15%' : '长期低价优势不足2%' };
+}
+
+export function productStability(candidate, settings, now) {
+  const rows = (candidate.pairedHistoryByRange?.['15d'] ?? []).filter(row => row.time && Number.isFinite(Date.parse(row.time))
+    && finite(row.profit) != null && finite(row.cost) != null && finite(row.revenue) != null)
+    .map(row => ({ ...row, at: Date.parse(row.time), value: Number(row.profit) })).sort((a, b) => a.at - b.at);
+  const latestAt = Math.min(now.getTime(), rows.at(-1)?.at ?? now.getTime());
+  const recentStart = latestAt - 7 * 86_400_000;
+  const priorStart = latestAt - 14 * 86_400_000;
+  const recent = rows.filter(row => row.at >= recentStart).map(row => row.value);
+  const prior = rows.filter(row => row.at >= priorStart && row.at < recentStart).map(row => row.value);
+  const all = rows.filter(row => row.at >= latestAt - 15 * 86_400_000).map(row => row.value);
+  const recentLow = quantile(recent, settings.conservativePercentile / 100);
+  const priorLow = quantile(prior, settings.conservativePercentile / 100);
+  const allLow = quantile(all, 0.25), allMedian = median(all);
+  const stable = recent.length >= 24 && prior.length >= 24 && recentLow > 0 && priorLow > 0
+    && relativeDifference(recentLow, priorLow) <= 0.25 && allLow >= allMedian * 0.65;
+  const cutoff72 = latestAt - 72 * 3_600_000;
+  const recent72 = rows.filter(row => row.at >= cutoff72).map(row => row.value);
+  const before72 = rows.filter(row => row.at < cutoff72).map(row => row.value);
+  const latestMedian = median(recent72), previousMedian = median(before72);
+  const signReversal = latestMedian != null && previousMedian != null && Math.sign(latestMedian) !== Math.sign(previousMedian);
+  const profitShift = latestMedian != null && previousMedian != null && Math.abs(previousMedian) > 0
+    ? Math.abs(latestMedian / previousMedian - 1) : 0;
+  return { stable, sampleCount: all.length, recentSamples: recent.length, priorSamples: prior.length,
+    recentConservative: recentLow, priorConservative: priorLow, p25: allLow, median: allMedian,
+    windowDifferencePercent: recentLow != null && priorLow != null ? relativeDifference(recentLow, priorLow) * 100 : null,
+    anomalous: signReversal || profitShift > 0.25, profitShiftPercent: profitShift * 100, signReversal,
+    reason: stable ? '前后两个约7天窗口均为正，保守利润差异不超过25%' :
+      recent.length < 24 || prior.length < 24 ? '两段历史样本不足' : recentLow <= 0 || priorLow <= 0 ? '至少一段保守利润不为正' :
+      relativeDifference(recentLow, priorLow) > 0.25 ? '前后两段保守利润差异超过25%' : '低位利润相对中位数断层明显' };
 }
 
 function summaryFor(candidates, settings, weeklyProfiles = null, monthlyProfiles = weeklyProfiles) {
@@ -278,13 +360,14 @@ export function adoptPlanSummary(summary, now = new Date()) {
   })) };
 }
 
-function buildOpportunity(profile, pools, settings, currentBest) {
-  const coverageDays = settings.scenarioDays ?? 7;
+function buildOpportunity(profile, pools, settings, currentBest, options = {}) {
+  const coverageDays = options.coverageDays ?? settings.scenarioDays ?? 7;
   const target = finite(profile.tierThresholds?.[`days${coverageDays}`]);
-  if (!profile.volatile || target == null) return null;
-  const weeklyProfiles = overrideProfiles([{ ...profile, unitPrice: target }], coverageDays, coverageDays);
-  const monthlyProfiles = overrideProfiles([{ ...profile, unitPrice: target }], 30, coverageDays);
-  const candidates = bestPortfolio(pools, settings, weeklyProfiles);
+  const resolvedTarget = finite(options.targetPrice ?? target);
+  if ((!profile.volatile && !options.allowStable) || resolvedTarget == null) return null;
+  const weeklyProfiles = overrideProfiles([{ ...profile, unitPrice: resolvedTarget }], coverageDays, coverageDays);
+  const monthlyProfiles = overrideProfiles([{ ...profile, unitPrice: resolvedTarget }], 30, coverageDays);
+  const candidates = bestPortfolio(pools, settings, weeklyProfiles, options.predicate);
   if (candidates.length !== 4) return null;
   let requiredPerAccount = 0;
   const usedBy = [];
@@ -295,7 +378,7 @@ function buildOpportunity(profile, pools, settings, currentBest) {
   if (!(requiredPerAccount > 0)) return null;
   const summary = summaryFor(candidates, settings, weeklyProfiles, monthlyProfiles);
   if (summary.conservativeWeekly == null) return null;
-  return { key: profile.key, name: profile.name, currentPrice: profile.currentPrice, targetPrice: Math.min(profile.currentPrice, target),
+  return { key: profile.key, name: profile.name, currentPrice: profile.currentPrice, targetPrice: Math.min(profile.currentPrice, resolvedTarget),
     coverageDays, sampleCount: profile.sampleCount, priceSpreadPercent: profile.priceSpreadPercent,
     requiredPerAccount, estimatedCostPerAccount: requiredPerAccount * Math.min(profile.currentPrice, target),
     recipes: [...new Set(usedBy)], plan: summary,
@@ -349,6 +432,13 @@ export function calculatePlan(data, settings, savedAdoption = null, savedStocked
     pricePercentiles: { days7: settings.buy7 / 100, days14: settings.buy14 / 100, days30: settings.buy30 / 100 }
   });
   const catalog = materialCatalog(pools, data, settings);
+  const now = new Date(data.builtAt ?? data.generatedAt);
+  const historiesByKey = new Map(Object.entries(data.materialHistories ?? {}).map(([name, rows]) => [normalize(name), rows]));
+  const stabilityCatalog = catalog.map(row => ({ ...row, stability: materialStability(row.name, row.currentPrice,
+    historiesByKey.get(row.key) ?? [], now) }));
+  const productEvidence = new WeakMap();
+  for (const candidate of Object.values(pools).flat()) productEvidence.set(candidate, productStability(candidate, settings, now));
+  const stableProduct = candidate => productEvidence.get(candidate)?.stable === true;
   const currentStockProfiles = stockedProfiles(stocked, catalog, settings.scenarioDays ?? 7);
   const monthlyStockProfiles = stockedProfiles(stocked, catalog, 30);
   const current = totalScenarios(activeCandidates, settings, currentStockProfiles);
@@ -367,6 +457,53 @@ export function calculatePlan(data, settings, savedAdoption = null, savedStocked
   const lowBest = summaryFor(lowCandidates, settings, lowWeeklyProfiles, lowMonthlyProfiles);
   const materialOpportunities = volatileProfiles.map(profile => buildOpportunity(profile, pools, settings, currentBest))
     .filter(Boolean).sort((a,b) => b.plan.conservativeWeekly - a.plan.conservativeWeekly || a.name.localeCompare(b.name, 'zh-CN'));
+  const stableMaterials = stabilityCatalog.filter(row => row.stability.stable && finite(row.stability.targetPrice) != null);
+  const stableRows = stableMaterials.map(row => ({ ...row, unitPrice: row.stability.targetPrice }));
+  const stableWeeklyProfiles = overrideProfiles(stableRows, settings.scenarioDays ?? 7, settings.scenarioDays ?? 7);
+  const stableMonthlyProfiles = overrideProfiles(stableRows, 30, settings.scenarioDays ?? 7);
+  const stableCandidates = bestPortfolio(pools, settings, stableWeeklyProfiles, stableProduct);
+  const stablePlan = summaryFor(stableCandidates, settings, stableWeeklyProfiles, stableMonthlyProfiles);
+  const stableMaterialOpportunities = stableMaterials.map(profile => buildOpportunity(profile, pools, settings, currentBest, {
+    coverageDays: 30, targetPrice: profile.stability.targetPrice, allowStable: true, predicate: stableProduct
+  })).filter(Boolean).map(item => ({ ...item, stability: stableMaterials.find(row => row.key === item.key)?.stability }))
+    .sort((a,b) => b.plan.conservativeMonthly - a.plan.conservativeMonthly || a.name.localeCompare(b.name, 'zh-CN'));
+
+  const lazyBestCandidates = bestPortfolio(pools, settings, null, stableProduct);
+  const lazyBest = summaryFor(lazyBestCandidates, settings);
+  const lazyCurrentCandidates = [];
+  const lazyRecommendedCandidates = [];
+  const lazySuggestions = [];
+  for (const place of PLACES) {
+    const best = lazyBestCandidates.find(row => row.place === place);
+    const adoptedId = adoption?.recipes.find(row => row.place === place)?.id;
+    const currentCandidate = adoptedId == null ? null : (pools[place] ?? []).find(row => row.id === adoptedId);
+    const currentEvidence = currentCandidate ? productEvidence.get(currentCandidate) : null;
+    if (currentCandidate) lazyCurrentCandidates.push(currentCandidate);
+    const validCurrent = currentCandidate && currentEvidence?.stable && currentCandidate.scenario?.conservativeWeekly > 0;
+    const threshold = settings.lazySwitchThreshold / 100;
+    const shouldSwitch = !validCurrent || (best && best.id !== currentCandidate.id
+      && best.scenario?.conservativeWeekly > currentCandidate.scenario?.conservativeWeekly * (1 + threshold));
+    if (shouldSwitch && best) {
+      lazyRecommendedCandidates.push(best);
+      lazySuggestions.push({ place, from: currentCandidate?.name ?? null, to: best.name, id: best.id,
+        reason: validCurrent ? `保守月利润提升超过${settings.lazySwitchThreshold}%` : '当前配方不再满足稳定现买条件',
+        increasePercent: validCurrent && currentCandidate.scenario?.conservativeWeekly > 0
+          ? (best.scenario.conservativeWeekly / currentCandidate.scenario.conservativeWeekly - 1) * 100 : null });
+    } else if (currentCandidate) lazyRecommendedCandidates.push(currentCandidate);
+  }
+  const lazyCurrent = summaryFor(lazyCurrentCandidates, settings);
+  const lazyRecommended = summaryFor(lazyRecommendedCandidates, settings);
+  const anomalousMaterials = stabilityCatalog.filter(row => row.stability.anomalous);
+  const anomalousStableProducts = stableCandidates.filter(candidate => productEvidence.get(candidate)?.anomalous);
+  const anomalyShare = stabilityCatalog.length ? anomalousMaterials.length / stabilityCatalog.length : 0;
+  const marketRegime = {
+    status: anomalyShare > 0.30 || anomalousStableProducts.length ? 'suspicious' : 'normal',
+    materialAnomalyShare: anomalyShare, anomalousMaterials: anomalousMaterials.map(row => row.name),
+    anomalousProducts: anomalousStableProducts.map(row => row.name), checkedAt: now.toISOString(),
+    reason: anomalyShare > 0.30 ? `重点材料中${Math.round(anomalyShare * 100)}%出现近72小时异常` :
+      anomalousStableProducts.length ? `稳定方案成品近72小时利润异常：${anomalousStableProducts.map(row => row.name).join('、')}` :
+      '近72小时未发现足以暂停长期方案的集中异常'
+  };
   const changes = proposalRecipes.filter(row => !adoption || adoption.recipes.find(old=>old.place===row.place)?.id !== row.id);
   const proposedBuy = buildWeeklyBuyAdvice({recommendations:proposedCandidates.map(row=>({place:row.place,cashSelected:row})), now:new Date(data.builtAt??data.generatedAt)});
   const materialNames = plan => plan.materials.filter(row=>!row.watchOnly).map(row=>row.name);
@@ -379,7 +516,14 @@ export function calculatePlan(data, settings, savedAdoption = null, savedStocked
     basis: `${adoption?'已采用方案':'待确认方案预览'} · 本网站估算：最近${settings.historyDays}天同点原生利润加回成本，再扣现价买料成本。保守${settings.conservativePercentile}%、较高${settings.highPercentile}%分位。按${settings.scenarioDays}天完整采购摊销（含取整余料），实际收益取决于成交和收菜频率。${current?'':'情景数据待更新，不以原生历史利润代替。'}`,
     target, targetIncrease: current && target ? target.conservativeWeekly-current.conservativeWeekly : null
   }, preview: !adoption, issues, adoptedAt: adoption?.adoptedAt ?? null,
-    comparisons: { current: currentPlan, currentBest, lowBest }, materialOpportunities,
+    comparisons: { current: currentPlan, currentBest, lowBest, stablePlan }, materialOpportunities, stableMaterialOpportunities,
+    stablePlan, stabilityEvidence: {
+      materials: stabilityCatalog.map(row => ({ name: row.name, ...row.stability })),
+      products: Object.fromEntries(Object.entries(pools).map(([place, rows]) => [place, rows.map(row => ({ id: row.id, name: row.name, ...productEvidence.get(row) }))]))
+    }, marketRegime,
+    lazyPlan: { canEnable: lazyBest.canAdopt, best: lazyBest, current: lazyCurrent, recommended: lazyRecommended,
+      suggestions: lazySuggestions, threshold: settings.lazySwitchThreshold,
+      missingPlaces: PLACES.filter(place => !lazyBest.recipes.some(row => row.place === place)) },
     stockedMaterials: stocked.items.map(item => ({ ...item, currentPrice: catalog.find(row => row.key === item.key)?.currentPrice ?? null })) }, buyPlan,
     proposal: {recipes:proposalRecipes,changes,canAdopt:proposalRecipes.every(row=>!row.unavailable),
       needsConfirmation:!adoption || changes.length>0, weeklyProfit:proposed?.conservativeWeekly ?? null,

@@ -14,14 +14,20 @@ try {
   const context = await browser.newContext({ viewport: { width: 375, height: 812 }, serviceWorkers: 'block', reducedMotion: 'reduce' });
   const page = await context.newPage();
   page.on('pageerror', error => errors.push(error.message));
-  const ready = async () => { await page.waitForFunction(() => document.querySelector('#conservativeWeekly').textContent !== '--'); };
+  const ready = async () => { await page.waitForFunction(() => document.querySelector('#profitLow').textContent !== '--'); };
   const view = async name => { await page.locator(`[data-target="${name}"]`).click(); };
   await page.goto('http://127.0.0.1:4175'); await ready();
-  assert.equal(await page.locator('.recipe-card').count(), 4);
-  assert.equal(await page.locator('.profit-card').count(), 4);
-  assert.equal(await page.locator('.plan-option').count(), 3);
+  assert.equal(await page.locator('#compactRecipeList article').count(), 4);
+  assert.equal(await page.locator('.profit-card').count(), 2);
   assert.equal(await page.locator('#accountSetupBanner').isVisible(), true);
-  assert.match(await page.locator('#conservativeMonthly').textContent(), /请先设置账号数/);
+  assert.match(await page.locator('#profitLow').textContent(), /请先设置账号数/);
+  await page.locator('[data-profit-period=day]').click();
+  assert.match(await page.locator('#profitLowLabel').textContent(), /日保守/);
+  await page.locator('[data-profit-period=month]').click();
+  await view('plans');
+  assert.equal(await page.locator('.recipe-card').count(), 4);
+  assert.equal(await page.locator('#planDetail .plan-option').count(), 1);
+  await view('home');
   await page.screenshot({ path: 'reports/qa-home.png', fullPage: true });
   await page.evaluate(() => localStorage.setItem('shoucai.lastHarvestFinishedAt', '2026-09-01T00:00:00.000Z'));
   await page.locator('#finishHarvest').click(); await page.locator('#finishHarvest').click();
@@ -47,6 +53,7 @@ try {
   assert.match(await page.locator('#settingsStatus').textContent(), /已保存/);
   assert.equal(await page.locator('#settingsError').isVisible(), false);
   await view('home');
+  await view('plans');
   assert.match(await page.locator('.recipe-card').nth(1).textContent(), /[4-8](\.5)?小时\/轮/);
   assert.match(await page.locator('.recipe-card').first().textContent(), /最近1天/);
   assert.match(await page.locator('.recipe-card').first().textContent(), /每周14轮/);
@@ -62,16 +69,19 @@ try {
   await page.locator('#settingsForm button[type=submit]').click();
   await page.reload(); await ready();
   assert.equal(await page.locator('#userShare').inputValue(), '0');
-  await view('home');
+  await view('plans');
   assert.match(await page.locator('#activePlanLabel').textContent(),/待确认/);
   await page.locator('#adoptPlan').click();
   assert.match(await page.locator('#activePlanLabel').textContent(),/已采用/);
+  await page.locator('[data-plan-type=currentBest]').click();
   await page.locator('[data-preview-plan=currentBest]').click();
   assert.equal(await page.locator('#planPreviewDialog').isVisible(), true);
   await page.locator('#cancelPlanPreview').click();
   const adopted = await page.evaluate(()=>localStorage.getItem('shoucai.adoptedPlan'));
   const harvest = await page.evaluate(()=>localStorage.getItem('shoucai.lastHarvestFinishedAt'));
+  await page.locator('[data-plan-type=current]').click();
   const recipeNames = await page.locator('.recipe-main').allTextContents();
+  await page.locator('[data-plan-type=lowBest]').click();
   await page.locator('#scenarioDays').selectOption('14');
   assert.match(await page.locator('#profitBasis').textContent(),/按14天完整采购/);
   await view('settings'); await page.locator('#accounts').fill('33');
@@ -84,6 +94,7 @@ try {
   assert.equal(await page.locator('#accounts').inputValue(),'33');
   assert.equal(await page.evaluate(()=>localStorage.getItem('shoucai.adoptedPlan')),adopted);
   assert.equal(await page.evaluate(()=>localStorage.getItem('shoucai.lastHarvestFinishedAt')),harvest);
+  await view('plans'); await page.locator('[data-plan-type=current]').click();
   assert.deepEqual(await page.locator('.recipe-main').allTextContents(),recipeNames);
   await page.unroute('**/data/latest.json?*');
   await page.unroute('**/data/version.json?*');
@@ -92,6 +103,7 @@ try {
   await page.locator('#refreshMarket').click();
   await page.waitForFunction(()=>!document.querySelector('#refreshMarket').disabled);
   assert.match(await page.locator('#marketStatus').textContent(),/刷新失败.*已保留/);
+  await view('plans'); await page.locator('[data-plan-type=current]').click();
   assert.deepEqual(await page.locator('.recipe-main').allTextContents(),recipeNames);
   await page.unroute('**/data/latest.json?*');
   await page.unroute('**/data/version.json?*');
@@ -102,9 +114,14 @@ try {
   assert.match(await page.locator('#marketStatus').textContent(),/最后成功检查/);
   assert.equal(await page.locator('#accounts').inputValue(),'33');
   await view('home');
+  await page.locator('.mode-card .switch').click();
+  assert.equal(await page.locator('body').evaluate(node => node.classList.contains('is-lazy-mode')), true);
+  assert.equal(await page.locator('#lazyMaterialSummary').isVisible(), true);
+  await page.locator('.mode-card .switch').click();
+  assert.equal(await page.locator('body').evaluate(node => node.classList.contains('is-lazy-mode')), false);
   await page.screenshot({path:'reports/qa-home-adopted.png',fullPage:true,animations:'disabled'});
   await view('buy');
-  const stockButton = page.locator('#opportunityList [data-stock-material]').first();
+  const stockButton = page.locator('#stableOpportunityList [data-stock-material]').first();
   if (await stockButton.count()) {
     await stockButton.click();
     assert.equal(await page.locator('#stockDialog').isVisible(), true);
@@ -117,7 +134,7 @@ try {
   }
   for (const size of [{ width: 375, height: 812 }, { width: 812, height: 375 }, { width: 1440, height: 900 }]) {
     await page.setViewportSize(size);
-    for (const name of ['home', 'buy', 'sell', 'settings']) {
+    for (const name of ['home', 'plans', 'buy', 'sell', 'settings']) {
       await view(name);
       if (name === 'settings') await page.locator('#settingsForm details').evaluateAll(nodes => nodes.forEach(node => node.open = true));
       const layout = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, width: innerWidth }));
@@ -155,7 +172,7 @@ try {
   await offlinePage.waitForFunction(() => navigator.serviceWorker.controller);
   await offline.setOffline(true);
   await offlinePage.goto('http://127.0.0.1:4175/?view=buy&offline-test=1');
-  await offlinePage.waitForFunction(() => document.querySelector('#conservativeWeekly').textContent !== '--');
+  await offlinePage.waitForFunction(() => document.querySelector('#profitLow').textContent !== '--');
   assert.equal(await offlinePage.locator('[data-view=buy]').isVisible(), true);
   assert.match(await offlinePage.locator('#marketStatus').textContent(),/离线缓存/);
   await offline.close();

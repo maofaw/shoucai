@@ -4,6 +4,7 @@ import { migrateSettings, calculatePlan, rankCandidates, sortMaterials as orderM
   adoptProposal, adoptRecipe, adoptPlanSummary } from './planner.js';
 import { recordHarvest, revertHarvest, pendingUndo, serialQueue } from './harvest.js';
 import { createMarketRefresher, MARKET_CHECK_MS } from './market-refresh.js';
+import { procurement } from './scenarios.js';
 
 const state = {
   data: null,
@@ -21,12 +22,21 @@ const state = {
   recipePicker: null,
   planPreview: null,
   stockEditor: null,
-  showAllOpportunities: false
+  showAllOpportunities: false,
+  selectedPlanType: 'current',
+  profitPeriod: loadJson('shoucai.uiPreferences', null)?.profitPeriod ?? 'month',
+  lazy: validLazyState(loadJson('shoucai.lazyMode', null)),
+  lastStablePlan: loadJson('shoucai.lastStablePlan', null)
 };
 const queueRemote = serialQueue();
 
 const nf = new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 0 });
-const VALID_VIEWS = new Set(['home', 'buy', 'sell', 'settings']);
+const VALID_VIEWS = new Set(['home', 'plans', 'buy', 'sell', 'settings']);
+
+function validLazyState(value) {
+  return { version: 1, enabled: value?.version === 1 && value.enabled === true,
+    backupAdoption: validAdoption(value?.backupAdoption), advanced: value?.advanced === true };
+}
 
 init().catch(error => {
   showToast('加载失败：' + error.message);
@@ -56,7 +66,7 @@ async function init() {
   }, onData: data => {
     const first = !state.data;
     const settings = first ? migrateSettings(state.settings, data.defaults || {}) : state.settings;
-    const result = calculatePlan(data, settings, state.adoption, state.stocked);
+    const result = calculatePlan(data, settings, state.adoption, state.lazy.enabled ? { version: 1, items: [] } : state.stocked);
     state.data = data;
     if (first) {
       state.settings = settings;
@@ -80,10 +90,12 @@ async function init() {
 function renderAll(result = null) {
   recomputeLocalPlan(result);
   renderFreshness();
+  renderMode();
+  renderCompactRecipes();
   renderRecipes();
   renderBuyShortcut();
   renderProfit();
-  renderPlanComparisons();
+  renderPlans();
   renderBuys();
   renderOpportunities();
   renderStockedMaterials();
@@ -96,8 +108,16 @@ function renderAll(result = null) {
 
 function recomputeLocalPlan(result = null) {
   if (!state.data.candidatePools) return;
-  result ??= calculatePlan(state.data, state.settings, state.adoption, state.stocked);
+  if (state.lazy.enabled) result = null;
+  result ??= calculatePlan(state.data, state.settings, state.adoption, state.lazy.enabled ? { version: 1, items: [] } : state.stocked);
   state.data.plan = result.plan;
+  if (result.plan.marketRegime?.status === 'normal' && result.plan.stablePlan?.canAdopt) {
+    state.lastStablePlan = result.plan.stablePlan;
+    localStorage.setItem('shoucai.lastStablePlan', JSON.stringify(state.lastStablePlan));
+  } else if (result.plan.marketRegime?.status === 'suspicious' && state.lastStablePlan?.canAdopt) {
+    state.data.plan.stablePlan = { ...state.lastStablePlan, readOnly: true };
+    state.data.plan.comparisons.stablePlan = state.data.plan.stablePlan;
+  }
   state.data.buyPlan = result.buyPlan;
   state.data.sell = result.sell;
   state.proposal = result.proposal;
@@ -143,6 +163,47 @@ function renderFreshness() {
   pill.classList.toggle('is-stale', stale);
   document.querySelector('#staleBanner').hidden = !stale;
   document.querySelector('#planState').textContent = state.data.plan?.preview ? '待确认' : '已采用';
+}
+
+function renderMode() {
+  document.body.classList.toggle('is-lazy-mode', state.lazy.enabled);
+  document.querySelector('#lazyModeToggle').checked = state.lazy.enabled;
+  document.querySelector('#lazyModeSetting').checked = state.lazy.enabled;
+  document.querySelector('#lazyAdvanced').hidden = !state.lazy.enabled;
+  setText('#homeModeNote', state.lazy.enabled ? '懒人模式 · 材料按现价购买 · 周末卖出' : '本网站估算 · 已扣分成，不代表保证到手');
+  document.querySelectorAll('.nav-advanced').forEach(node => { node.hidden = state.lazy.enabled; });
+  const nav = document.querySelector('.bottom-nav');
+  nav.classList.toggle('bottom-nav--simple', state.lazy.enabled);
+  const material = document.querySelector('#lazyMaterialSummary');
+  const switchCard = document.querySelector('#lazySwitchCard');
+  material.hidden = !state.lazy.enabled;
+  switchCard.hidden = !state.lazy.enabled;
+  if (!state.lazy.enabled) return;
+  const demand = new Map();
+  for (const row of state.data.plan?.recipes ?? []) {
+    const candidate = rankCandidates(state.data, state.settings, row.place, state.settings.techMode, true).find(item => item.id === row.id);
+    const purchase = candidate ? procurement({ ...candidate, runsPerWeek: 1 }, 7) : null;
+    for (const item of purchase?.materials ?? []) {
+      const key = normalizeText(item.name), old = demand.get(key) ?? { name: item.name, count: 0, cost: 0 };
+      old.count += item.count; old.cost += item.cost; demand.set(key, old);
+    }
+  }
+  const multiplier = state.settings.accounts > 0 ? state.settings.accounts : 1;
+  const scope = state.settings.accounts > 0 ? `全部${state.settings.accounts}个号` : '每个账号';
+  const rows = [...demand.values()];
+  material.innerHTML = '<div class="lazy-summary__head"><div><span>本轮现买材料</span><strong>' + scope + '</strong></div><b>' + moneyWan(rows.reduce((sum, row) => sum + row.cost, 0) * multiplier) + '</b></div>' +
+    (rows.length ? '<details><summary>查看' + rows.length + '种材料数量</summary><ul>' + rows.map(row => '<li><span>' + escapeHtml(row.name) + '</span><strong>' + nf.format(Math.ceil(row.count * multiplier)) + '个</strong></li>').join('') + '</ul></details>' : '<p>材料数据待更新。</p>');
+  const lazy = state.data.plan?.lazyPlan;
+  if (lazy?.suggestions?.length) {
+    switchCard.innerHTML = '<div class="lazy-summary__head"><div><span>下一轮建议更换</span><strong>' + lazy.suggestions.length + '台达到换产条件</strong></div></div><ul>' + lazy.suggestions.map(item => '<li><span>' + escapeHtml(item.from || '当前配方') + ' → ' + escapeHtml(item.to) + '</span><small>' + escapeHtml(item.reason) + '</small></li>').join('') + '</ul><button id="adoptLazyNext" class="primary-button" type="button">下一轮一键采用</button>';
+  } else switchCard.innerHTML = '<div class="lazy-summary__head"><div><span>下一轮是否换产</span><strong>继续当前方案</strong></div></div><p>暂无稳定方案超过' + state.settings.lazySwitchThreshold + '%门槛。</p>';
+}
+
+function renderCompactRecipes() {
+  const rows = state.data.plan?.recipes ?? [];
+  const target = document.querySelector('#compactRecipeList');
+  if (!rows.length) { target.innerHTML = '<p class="empty-state">暂时没有完整的四台制造方案。</p>'; return; }
+  target.innerHTML = rows.map(row => '<article><div><span>' + escapeHtml(row.label || row.place) + '</span><strong>' + escapeHtml(row.main || '数据待更新') + '</strong></div><b>' + (row.hours ?? '--') + '小时</b></article>').join('');
 }
 
 function renderRecipes() {
@@ -311,25 +372,27 @@ function renderProfit() {
   const monthlyHigh = numberOrNull(profit.highMonthlyPerAccount) ?? (weeklyHigh == null ? null : weeklyHigh / 7 * 30);
   const total = value => value == null ? '待更新' : configured ? moneyWan(value * factor) : '请先设置账号数';
   const cny = value => value == null ? '人民币待更新' : configured ? '约 ' + nf.format(value * factor / (state.settings.rate * 10_000)) + ' 元' : '仍可查看单号利润';
-  setText('#conservativeMonthly', total(monthlyLow));
-  setText('#monthlyHigh', total(monthlyHigh));
-  setText('#conservativeWeekly', total(weeklyLow));
-  setText('#highWeekly', total(weeklyHigh));
-  setText('#conservativeMonthlyCny', cny(monthlyLow));
-  setText('#monthlyHighCny', cny(monthlyHigh));
-  setText('#conservativeCny', cny(weeklyLow));
-  setText('#highCny', cny(weeklyHigh));
-  setText('#dailyRange', dailyLow == null ? '待更新' : configured
-    ? moneyWan(dailyLow * factor) + (dailyHigh == null ? '' : ' ～ ' + moneyWan(dailyHigh * factor))
-    : '单号 ' + moneyWan(dailyLow) + (dailyHigh == null ? '' : ' ～ ' + moneyWan(dailyHigh)));
+  const periods = {
+    day: { label: '日', low: dailyLow, high: dailyHigh, hint: '按对应周利润除以7折算' },
+    week: { label: '周', low: weeklyLow, high: weeklyHigh, hint: '按设置的每周实际轮数估算' },
+    month: { label: '月', low: monthlyLow, high: monthlyHigh, hint: '按日均折算30天' }
+  };
+  const selected = periods[state.profitPeriod] ?? periods.month;
+  document.querySelectorAll('[data-profit-period]').forEach(button => {
+    const active = button.dataset.profitPeriod === state.profitPeriod;
+    button.classList.toggle('is-active', active); button.setAttribute('aria-pressed', String(active));
+  });
+  setText('#profitLowLabel', selected.label + '保守预计' + (state.profitPeriod === 'month' ? ' · 30天' : ''));
+  setText('#profitHighLabel', selected.label + '较高预计' + (state.profitPeriod === 'month' ? ' · 30天' : ''));
+  setText('#profitLow', total(selected.low)); setText('#profitHigh', total(selected.high));
+  setText('#profitLowCny', cny(selected.low)); setText('#profitHighCny', cny(selected.high));
+  setText('#profitLowHint', selected.hint); setText('#profitHighHint', '历史较高情景，不代表保证收益');
   document.querySelector('#accountSetupBanner').hidden = configured;
-  document.querySelector('#monthlyCard').classList.toggle('is-negative', monthlyLow != null && monthlyLow < 0);
-  document.querySelector('#monthlyHighCard').classList.toggle('is-negative', monthlyHigh != null && monthlyHigh < 0);
+  document.querySelector('#profitLowCard').classList.toggle('is-negative', selected.low != null && selected.low < 0);
+  document.querySelector('#profitHighCard').classList.toggle('is-negative', selected.high != null && selected.high < 0);
   document.querySelector('#profitBreakdown').innerHTML = [detailRow('单号日均保守', dailyLow), detailRow('单号周保守', weeklyLow),
     detailRow('单号30天保守', monthlyLow), configured ? detailRow('所有账号周利润（未分成）', weeklyLow == null ? null : weeklyLow * state.settings.accounts) : '',
     configured ? detailRow('每周朋友分成', weeklyLow == null ? null : weeklyLow * (state.settings.accounts - factor)) : ''].join('') || '<p>情景数据待更新，不输出不完整的合计。</p>';
-  document.querySelector('#conservativeCard').classList.toggle('is-negative', weeklyLow != null && weeklyLow < 0);
-  document.querySelector('#highCard').classList.toggle('is-negative', weeklyHigh != null && weeklyHigh < 0);
   const basis = profit.basis || state.data.plan?.basis || '按当前材料价和历史周末卖价估算';
   setText('#profitBasis', basis + (configured
     ? '；已按 ' + state.settings.accounts + ' 个号、其中 ' + state.settings.sharedAccounts + ' 个分成号（你拿 ' + state.settings.userShare + '%）计算。'
@@ -344,7 +407,7 @@ function profitDisplay(value) {
   return moneyWan(amount * factor);
 }
 
-function planCard(type, title, badge, summary, note, adoptable) {
+function planCard(type, title, badge, summary, note, adoptable, blocked = false) {
   const labels = state.data.defaults?.placeRules ?? {};
   if (!summary?.recipes?.length) return '<article class="plan-option"><div class="plan-option__head"><h3>' + title + '</h3><span>数据不足</span></div><p class="plan-option__note">配方历史或材料价格不完整，暂不输出这套方案。</p></article>';
   const recipes = summary.recipes.map(row => '<li><strong>' + escapeHtml(labels[row.place]?.label ?? row.place) + '</strong>：' + escapeHtml(row.name) + ' · ' + row.hours + '小时</li>').join('');
@@ -353,19 +416,31 @@ function planCard(type, title, badge, summary, note, adoptable) {
     '<ul class="plan-option__recipes">' + recipes + '</ul><div class="plan-option__metrics">' +
     '<div><span>周保守</span><strong>' + profitDisplay(summary.conservativeWeekly) + '</strong></div><div><span>周较高</span><strong>' + profitDisplay(summary.highWeekly) + '</strong></div>' +
     '<div><span>30天保守</span><strong>' + profitDisplay(summary.conservativeMonthly) + '</strong></div><div><span>30天较高</span><strong>' + profitDisplay(summary.highMonthly) + '</strong></div></div>' +
-    '<p class="plan-option__note">' + escapeHtml(note) + '</p>' + (adoptable && summary.canAdopt ? '<button class="secondary-button" type="button" data-preview-plan="' + type + '">预览并采用</button>' : '') + '</article>';
+    '<p class="plan-option__note">' + escapeHtml(note) + '</p>' + (adoptable && summary.canAdopt ? '<button class="secondary-button" type="button" data-preview-plan="' + type + '"' + (blocked ? ' disabled' : '') + '>' + (blocked ? '市场异常，暂停采用' : '预览并采用') + '</button>' : '') + '</article>';
 }
 
-function renderPlanComparisons() {
+function renderPlans() {
   const comparisons = state.data.plan?.comparisons ?? {};
-  document.querySelector('#planComparisonList').innerHTML = [
-    planCard('current', '当前采用方案', state.data.plan.preview ? '待首次确认' : '实际执行', comparisons.current,
-      state.stocked.items.length ? '已使用本机记录的真实囤货价，未囤材料按现价。' : '尚未记录囤货，材料按当前市场价计算。', false),
-    planCard('currentBest', '现价买料最优', '全部现买', comparisons.currentBest,
-      '重新比较全部允许配方，所有材料按当前市场价。', true),
-    planCard('lowBest', '低价囤料最优', '假设低价', comparisons.lowBest,
-      `高波动材料假设达到${state.settings.scenarioDays}天建议价；没有确认囤货前不计入当前收入。`, true)
-  ].join('');
+  const regime = state.data.plan?.marketRegime;
+  const suspicious = regime?.status === 'suspicious';
+  document.querySelector('#marketRegime').innerHTML = '<strong>' + (suspicious ? '长期方案暂缓采用' : '长期行情状态正常') + '</strong><p>' + escapeHtml(regime?.reason || '稳定性证据正在计算') + '</p>';
+  document.querySelector('#marketRegime').classList.toggle('is-warning', suspicious);
+  document.querySelectorAll('[data-plan-type]').forEach(button => {
+    const active = button.dataset.planType === state.selectedPlanType;
+    button.classList.toggle('is-active', active); button.setAttribute('aria-selected', String(active));
+  });
+  const entries = {
+    current: ['当前采用方案', state.data.plan.preview ? '待首次确认' : '实际执行', comparisons.current,
+      state.lazy.enabled ? '懒人模式：全部材料按现价计算。' : state.stocked.items.length ? '已使用本机记录的真实囤货价，未囤材料按现价。' : '尚未记录囤货，材料按当前市场价计算。', false, false],
+    currentBest: ['现价买料最优', '全部现买', comparisons.currentBest, '重新比较全部允许配方，所有材料按当前市场价。', true, false],
+    lowBest: ['短期低价最优', '阶段低价', comparisons.lowBest, `高波动材料假设达到${state.settings.scenarioDays}天建议价，适合临时抓机会。`, true, false],
+    stablePlan: ['长期稳屯', suspicious ? '上次稳定方案' : '30天验证', comparisons.stablePlan, suspicious ? '近72小时行情异常，暂时只读展示上一次通过验证的稳定方案。' : '只使用低价在至少3周重复出现、且前后两段成品利润稳定的候选。', true, suspicious]
+  };
+  const [title, badge, summary, note, adoptable, blocked] = entries[state.selectedPlanType] ?? entries.current;
+  document.querySelector('#planDetail').innerHTML = planCard(state.selectedPlanType, title, badge, summary, note, adoptable, blocked);
+  document.querySelector('#scenarioDaysRow').hidden = !['lowBest', 'stablePlan'].includes(state.selectedPlanType);
+  document.querySelector('#currentRecipeDetails').hidden = state.selectedPlanType !== 'current';
+  document.querySelector('#proposalCard').hidden = state.selectedPlanType !== 'current';
 }
 
 function renderOpportunities() {
@@ -388,6 +463,17 @@ function renderOpportunities() {
   const toggle = document.querySelector('#toggleOpportunities');
   toggle.hidden = rows.length <= 5;
   toggle.textContent = state.showAllOpportunities ? '收起，只看前5名' : '查看全部' + rows.length + '种材料';
+
+  const stable = state.data.plan?.stableMaterialOpportunities ?? [];
+  const stableList = document.querySelector('#stableOpportunityList');
+  if (!stable.length) stableList.innerHTML = '<div class="empty-state">目前没有同时通过“30天多周低价复现”和“成品利润稳定”验证的材料。宁可空缺，也不把一次暴跌当长期机会。</div>';
+  else stableList.innerHTML = stable.slice(0, 3).map((item, index) => {
+    const totalCount = state.settings.accounts > 0 ? nf.format(Math.ceil(item.requiredPerAccount * state.settings.accounts)) + '个' : '设置账号数后计算';
+    return '<article class="opportunity-card opportunity-card--stable"><div class="opportunity-card__head"><div><h3>' + (index + 1) + '. ' + escapeHtml(item.name) + '</h3><p class="opportunity-card__price">长期建议不高于 <b>' + nf.format(item.targetPrice) + '</b>（现价 ' + nf.format(item.currentPrice) + '）</p></div><span>' + (item.stability?.repeatWeeks ?? 0) + '周复现</span></div>' +
+      '<div class="opportunity-card__metrics"><div><span>单号买30天</span><strong>' + nf.format(Math.ceil(item.requiredPerAccount)) + '个</strong></div><div><span>全部账号数量</span><strong>' + totalCount + '</strong></div><div><span>保守月利润</span><strong>' + profitDisplay(item.plan.conservativeMonthly) + '</strong></div><div><span>较高月利润</span><strong>' + profitDisplay(item.plan.highMonthly) + '</strong></div></div>' +
+      '<p class="opportunity-card__note">' + escapeHtml(item.stability?.reason || '多周低价验证通过') + '；各周低价差异 ' + (item.stability?.lowDeviationPercent?.toFixed(1) ?? '--') + '%。</p>' +
+      '<button class="secondary-button" type="button" data-preview-opportunity="' + escapeHtml(item.key) + '" data-stable-opportunity="true">预览这套方案</button><button class="material-stock-button" type="button" data-stock-material="' + escapeHtml(item.name) + '" data-stock-price="' + item.targetPrice + '" data-stock-days="30">已囤到货</button></article>';
+  }).join('');
 }
 
 function renderStockedMaterials() {
@@ -503,7 +589,13 @@ function renderMaterials(plan, days, suggested) {
       (target == null ? '' : '<button class="material-stock-button" type="button" data-stock-material="' + escapeHtml(material.name) + '" data-stock-price="' + (stocked?.unitPrice ?? target) + '" data-stock-days="' + (stocked?.coverageDays ?? days) + '">' + (stocked ? '修改已囤价格' : '已囤到货') + '</button>') +
       '</article>';
   };
-  const cards = materials.map(materialCard).join('');
+  const groups = [
+    { key: 'buy', title: '现在可以买', open: true, rows: materials.filter(row => row.action === 'buy') },
+    { key: 'close', title: '接近好价', open: true, rows: materials.filter(row => row.action !== 'buy' && numberOrNull(row.currentPrice) != null && numberOrNull(row.tierThresholds?.['days' + days] ?? row.targetPrice) != null && row.currentPrice <= (row.tierThresholds?.['days' + days] ?? row.targetPrice) * 1.10) },
+    { key: 'wait', title: '继续等待', open: false, rows: materials.filter(row => row.action !== 'buy' && numberOrNull(row.currentPrice) != null && numberOrNull(row.tierThresholds?.['days' + days] ?? row.targetPrice) != null && row.currentPrice > (row.tierThresholds?.['days' + days] ?? row.targetPrice) * 1.10) },
+    { key: 'unknown', title: '数据不足', open: false, rows: materials.filter(row => numberOrNull(row.currentPrice) == null || numberOrNull(row.tierThresholds?.['days' + days] ?? row.targetPrice) == null) }
+  ];
+  const cards = groups.filter(group => group.rows.length).map(group => '<details class="material-group"' + (group.open ? ' open' : '') + '><summary><span>' + group.title + '</span><b>' + group.rows.length + '种</b></summary><div class="material-group__list">' + group.rows.map(materialCard).join('') + '</div></details>').join('');
   const watchSection = watchMaterials.length
     ? '<div class="watch-material-heading"><strong>稳定方案备料</strong><p>当前不一定生产，但继续盯价，避免常用配方需要切回时没有材料。</p></div>' + watchMaterials.map(materialCard).join('')
     : '';
@@ -579,6 +671,39 @@ function openView(target, { updateUrl = true, focus = true } = {}) {
   window.scrollTo({ top: 0, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
 }
 
+function saveLazyState() {
+  localStorage.setItem('shoucai.lazyMode', JSON.stringify(state.lazy));
+}
+
+function setLazyMode(enabled) {
+  if (enabled === state.lazy.enabled) { renderMode(); return; }
+  if (enabled) {
+    const lazyPlan = state.data?.plan?.lazyPlan;
+    if (!lazyPlan?.canEnable) {
+      const labels = state.data?.defaults?.placeRules ?? {};
+      const missing = (lazyPlan?.missingPlaces ?? []).map(place => labels[place]?.label ?? place).join('、');
+      showToast('暂时不能开启：' + (missing ? missing + '缺少稳定、非亏损的现买方案' : '四台稳定方案数据不完整'));
+      renderMode(); return;
+    }
+    try {
+      const record = adoptPlanSummary(lazyPlan.best);
+      state.lazy = { version: 1, enabled: true, backupAdoption: state.adoption, advanced: false };
+      state.adoption = record;
+      localStorage.setItem(ADOPTION_KEY, JSON.stringify(record)); saveLazyState(); renderAll();
+      showToast('懒人模式已开启：现买材料、稳定制造、周末卖出');
+    } catch (error) { showToast(error.message); renderMode(); }
+    return;
+  }
+  const backup = validAdoption(state.lazy.backupAdoption);
+  state.lazy = { version: 1, enabled: false, backupAdoption: null, advanced: false };
+  saveLazyState();
+  if (backup) {
+    state.adoption = backup; localStorage.setItem(ADOPTION_KEY, JSON.stringify(backup));
+    showToast('已退出懒人模式，并恢复开启前的四台方案');
+  } else showToast('已退出懒人模式；未找到完整备份，保留当前方案');
+  renderAll();
+}
+
 function bindActions() {
   document.querySelector('#refreshMarket').addEventListener('click', () => state.refresher?.check(true));
   document.querySelector('#openAccountSettings').addEventListener('click', () => {
@@ -586,6 +711,16 @@ function bindActions() {
     document.querySelector('#accounts').closest('details')?.setAttribute('open', '');
     document.querySelector('#accounts').focus();
   });
+  document.querySelectorAll('[data-profit-period]').forEach(button => button.addEventListener('click', () => {
+    state.profitPeriod = button.dataset.profitPeriod;
+    localStorage.setItem('shoucai.uiPreferences', JSON.stringify({ version: 1, profitPeriod: state.profitPeriod }));
+    renderProfit();
+  }));
+  document.querySelector('#openPlans').addEventListener('click', () => openView('plans'));
+  document.querySelector('#lazyAdvanced').addEventListener('click', () => { state.lazy.advanced = true; saveLazyState(); openView('plans'); });
+  document.querySelectorAll('#lazyModeToggle, #lazyModeSetting').forEach(input => input.addEventListener('change', event => {
+    setLazyMode(event.target.checked);
+  }));
   document.querySelector('#adoptPlan').addEventListener('click', () => {
     try {
       const record = adoptProposal(state.proposal);
@@ -614,21 +749,37 @@ function bindActions() {
       showToast('本台配方已更换，利润和买料清单已重新计算');
     } catch (error) { showToast('保存失败：' + error.message); }
   });
-  document.querySelector('#planComparisonList').addEventListener('click', event => {
+  document.querySelector('#planDetail').addEventListener('click', event => {
     const button = event.target.closest('[data-preview-plan]');
     if (!button) return;
     const summary = state.data.plan?.comparisons?.[button.dataset.previewPlan];
-    openPlanPreview(summary, button.dataset.previewPlan === 'lowBest' ? '低价囤料最优方案' : '现价买料最优方案');
+    if (button.dataset.previewPlan === 'stablePlan' && state.data.plan?.marketRegime?.status === 'suspicious') return showToast('近72小时行情异常，长期稳屯方案暂缓采用');
+    const titles = { lowBest: '短期低价最优方案', stablePlan: '长期稳屯方案', currentBest: '现价买料最优方案' };
+    openPlanPreview(summary, titles[button.dataset.previewPlan] ?? '制造方案');
   });
-  document.querySelector('#opportunityList').addEventListener('click', event => {
+  document.querySelectorAll('#opportunityList, #stableOpportunityList').forEach(list => list.addEventListener('click', event => {
     const preview = event.target.closest('[data-preview-opportunity]');
     if (preview) {
-      const item = (state.data.plan?.materialOpportunities ?? []).find(row => row.key === preview.dataset.previewOpportunity);
+      const source = preview.dataset.stableOpportunity ? state.data.plan?.stableMaterialOpportunities : state.data.plan?.materialOpportunities;
+      const item = (source ?? []).find(row => row.key === preview.dataset.previewOpportunity);
       if (item) openPlanPreview(item.plan, '囤“' + item.name + '”后的最佳方案');
       return;
     }
     const stock = event.target.closest('[data-stock-material]');
     if (stock) openStockDialog(stock.dataset.stockMaterial, Number(stock.dataset.stockPrice), Number(stock.dataset.stockDays));
+  }));
+  document.querySelector('#planTabs').addEventListener('click', event => {
+    const button = event.target.closest('[data-plan-type]');
+    if (!button) return;
+    state.selectedPlanType = button.dataset.planType; renderPlans();
+  });
+  document.querySelector('#lazySwitchCard').addEventListener('click', event => {
+    if (!event.target.closest('#adoptLazyNext')) return;
+    try {
+      const record = adoptPlanSummary(state.data.plan?.lazyPlan?.recommended);
+      localStorage.setItem(ADOPTION_KEY, JSON.stringify(record)); state.adoption = record; renderAll();
+      showToast('已采用下一轮稳定方案，当前收菜时间未改变');
+    } catch (error) { showToast(error.message); }
   });
   document.querySelector('#buyList').addEventListener('click', event => {
     const stock = event.target.closest('[data-stock-material]');
@@ -783,7 +934,8 @@ function readSettingsForm(validate = true) {
   const fields = { accounts: 'accounts', sharedAccounts: 'sharedAccounts', userShare: 'userShare', rate: 'rate', budgetWan: 'budget',
     shortWeeklyRuns: 'shortWeeklyRuns',
     conservativePercentile: 'conservativePercentile', highPercentile: 'highPercentile', historyDays: 'historyDays',
-    buy7: 'buy7', buy14: 'buy14', buy30: 'buy30', stableShare: 'stableShare', stableSpread: 'stableSpread' };
+    buy7: 'buy7', buy14: 'buy14', buy30: 'buy30', stableShare: 'stableShare', stableSpread: 'stableSpread',
+    lazySwitchThreshold: 'lazySwitchThreshold' };
   for (const [key, id] of Object.entries(fields)) next[key] = Number(document.getElementById(id).value);
   next.techMode = document.querySelector('#techMode').value;
   document.querySelectorAll('[data-station]').forEach(group => {
@@ -831,6 +983,8 @@ function showSettings() {
   setValue('#historyDays', state.settings.historyDays);
   setValue('#buy7', state.settings.buy7); setValue('#buy14', state.settings.buy14); setValue('#buy30', state.settings.buy30);
   setValue('#stableShare', state.settings.stableShare); setValue('#stableSpread', state.settings.stableSpread);
+  setValue('#lazySwitchThreshold', state.settings.lazySwitchThreshold);
+  document.querySelector('#lazyModeSetting').checked = state.lazy.enabled;
 }
 
 function buildStationSettings() {
