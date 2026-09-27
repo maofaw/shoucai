@@ -5,6 +5,7 @@ config.json
 /data/
 /logs/
 /reports/
+/web/data/latest.json.gz
 /.cache/
 worker/wrangler.json
 worker/.wrangler/

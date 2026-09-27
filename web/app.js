@@ -5,6 +5,7 @@ import { migrateSettings, calculatePlan, rankCandidates, sortMaterials as orderM
 import { recordHarvest, revertHarvest, pendingUndo, serialQueue } from './harvest.js';
 import { createMarketRefresher, MARKET_CHECK_MS } from './market-refresh.js';
 import { procurement } from './scenarios.js';
+import { loadMarketSnapshot } from './snapshot-loader.js';
 
 const state = {
   data: null,
@@ -60,9 +61,7 @@ async function init() {
         }
       } catch { /* The full snapshot path also supports old deployments and offline cache. */ }
     }
-    const response = await fetch('./data/latest.json?v=' + Date.now(), { cache: 'no-store', signal: AbortSignal.timeout(20_000) });
-    if (!response.ok) throw new Error('HTTP ' + response.status);
-    return { data: await response.json(), offline: response.headers.get('x-shoucai-offline') === '1' };
+    return loadMarketSnapshot({ signal: AbortSignal.timeout(20_000) });
   }, onData: data => {
     const first = !state.data;
     const settings = first ? migrateSettings(state.settings, data.defaults || {}) : state.settings;
