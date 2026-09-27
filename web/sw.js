@@ -1,6 +1,6 @@
-const CACHE = 'shoucai-v16';
+const CACHE = 'shoucai-v17';
 const DATA = './data/latest.json';
-const SHELL = ['./', './index.html', './styles.css?v=16', './app.js?v=16', './planner.js', './harvest.js', './engine/buy-window.mjs', './engine/market-history.mjs', './engine/recommend.mjs', './engine/weekend-prices.mjs', './budget.js', './manifest.webmanifest', './runtime-config.js', './favicon.svg', DATA];
+const SHELL = ['./', './index.html', './styles.css?v=17', './app.js?v=17', './planner.js', './scenarios.js', './market-refresh.js', './harvest.js', './engine/buy-window.mjs', './engine/market-history.mjs', './engine/recommend.mjs', './engine/weekend-prices.mjs', './budget.js', './manifest.webmanifest', './runtime-config.js', './favicon.svg', DATA, './data/version.json'];
 
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(SHELL)).then(() => self.skipWaiting()));
@@ -15,15 +15,20 @@ self.addEventListener('activate', event => {
 self.addEventListener('fetch', event => {
   const requestUrl = new URL(event.request.url);
   if (event.request.method !== 'GET' || requestUrl.origin !== self.location.origin) return;
-  if (requestUrl.pathname.endsWith('/data/latest.json')) {
+  if (requestUrl.pathname.endsWith('/data/latest.json') || requestUrl.pathname.endsWith('/data/version.json')) {
+    const dataKey = requestUrl.pathname.endsWith('/data/version.json') ? './data/version.json' : DATA;
     event.respondWith(fetch(event.request)
       .then(response => {
         if (!response.ok) throw new Error('行情请求失败');
         const copy = response.clone();
-        caches.open(CACHE).then(cache => cache.put(DATA, copy));
+        caches.open(CACHE).then(cache => cache.put(dataKey, copy));
         return response;
       })
-      .catch(() => caches.match(DATA).then(response => response || new Response('', { status: 503 }))));
+      .catch(() => caches.match(dataKey).then(response => {
+        if (!response) return new Response('', { status: 503 });
+        const headers = new Headers(response.headers); headers.set('x-shoucai-offline', '1');
+        return new Response(response.body, {status:200,headers});
+      })));
     return;
   }
   event.respondWith(fetch(event.request)

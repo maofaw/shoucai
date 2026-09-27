@@ -74,6 +74,7 @@ const buyPlan = buildWeeklyBuyAdvice({
 const dashboard = buildDashboardData({ snapshot, metadata, recommendations, buyPlan, sellPlan, historiesByMaterial, config });
 fs.mkdirSync(path.dirname(destination), { recursive: true });
 fs.writeFileSync(destination, `${JSON.stringify(dashboard)}\n`, 'utf8');
+fs.writeFileSync(path.join(projectRoot, 'web', 'data', 'version.json'), JSON.stringify({ schemaVersion: dashboard.schemaVersion, builtAt: dashboard.builtAt, generatedAt: dashboard.generatedAt }) + '\n', 'utf8');
 const engineDir = path.join(projectRoot, 'web', 'engine');
 fs.mkdirSync(engineDir, { recursive: true });
 for (const name of ['buy-window.mjs', 'market-history.mjs', 'recommend.mjs', 'weekend-prices.mjs']) {

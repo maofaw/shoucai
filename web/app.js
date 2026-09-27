@@ -1,11 +1,15 @@
 import { materialCostForDays, suggestedDaysForBudget } from './budget.js';
-import { migrateSettings, calculatePlan, sortMaterials as orderMaterials, normalize as normalizeText } from './planner.js';
+import { migrateSettings, calculatePlan, sortMaterials as orderMaterials, normalize as normalizeText, ADOPTION_KEY, validAdoption, adoptProposal } from './planner.js';
 import { recordHarvest, revertHarvest, pendingUndo, serialQueue } from './harvest.js';
+import { createMarketRefresher, MARKET_CHECK_MS } from './market-refresh.js';
 
 const state = {
   data: null,
   settings: loadJson('shoucai.settings', {}),
   selectedDays: 'auto',
+  adoption: validAdoption(loadJson(ADOPTION_KEY, null)),
+  proposal: null,
+  refresher: null,
   admin: location.hash.startsWith('#manage='),
   adminKey: location.hash.startsWith('#manage=') ? decodeURIComponent(location.hash.slice('#manage='.length)) : '',
   apiBase: String(window.SHOUCAI_CONFIG?.apiBase ?? '').replace(/\/$/, ''),
@@ -28,26 +32,46 @@ init().catch(error => {
 async function init() {
   bindNavigation();
   bindActions();
-  const response = await fetch('./data/latest.json?v=' + Date.now(), { cache: 'no-store', signal: AbortSignal.timeout(20_000) });
-  if (!response.ok) throw new Error('HTTP ' + response.status);
-  state.data = await response.json();
   await loadRemoteState();
-  const defaults = state.data.defaults || {};
-  state.settings = migrateSettings(state.settings, defaults);
-  state.settings.sharedAccounts = Math.min(state.settings.sharedAccounts, state.settings.accounts);
-  buildStationSettings();
-  showSettings();
+  state.refresher = createMarketRefresher({ load: async () => {
+    if (state.data) {
+      try {
+        const check = await fetch('./data/version.json?v=' + Date.now(), {cache:'no-store',signal:AbortSignal.timeout(10_000)});
+        if (check.ok && check.headers.get('x-shoucai-offline') !== '1') {
+          const version = await check.json();
+          if (version.builtAt === state.data.builtAt && version.generatedAt === state.data.generatedAt) return {data:state.data,offline:false};
+        }
+      } catch { /* The full snapshot path also supports old deployments and offline cache. */ }
+    }
+    const response = await fetch('./data/latest.json?v=' + Date.now(), { cache: 'no-store', signal: AbortSignal.timeout(20_000) });
+    if (!response.ok) throw new Error('HTTP ' + response.status);
+    return { data: await response.json(), offline: response.headers.get('x-shoucai-offline') === '1' };
+  }, onData: data => {
+    const first = !state.data;
+    const settings = first ? migrateSettings(state.settings, data.defaults || {}) : state.settings;
+    const result = calculatePlan(data, settings, state.adoption);
+    state.data = data;
+    if (first) {
+      state.settings = settings;
+      buildStationSettings(); showSettings();
+      document.querySelector('#scenarioDays').value = state.settings.scenarioDays;
+    }
+    renderAll(result);
+  }, onStatus: renderRefreshStatus });
+  await state.refresher.check(true);
   document.querySelector('#finishSell').hidden = !state.admin;
-  renderAll();
   restoreUndoNotice();
-  setInterval(renderFreshness, 60_000);
+  setInterval(() => { if (state.data) renderFreshness(); }, 60_000);
+  setInterval(() => { if (!document.hidden) state.refresher.check(); }, MARKET_CHECK_MS);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) state.refresher.check(); });
+  window.addEventListener('online', () => state.refresher.check(true));
   const initialView = new URLSearchParams(location.search).get('view');
   if (VALID_VIEWS.has(initialView) && initialView !== 'home') openView(initialView, { updateUrl: false, focus: false });
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
 }
 
-function renderAll() {
-  recomputeLocalPlan();
+function renderAll(result = null) {
+  recomputeLocalPlan(result);
   renderFreshness();
   renderRecipes();
   renderBuyShortcut();
@@ -55,16 +79,49 @@ function renderAll() {
   renderBuys();
   renderSell();
   renderHarvest();
+  renderProposal();
   document.querySelector('#sourceTime').textContent = '行情时间：' + formatDateTime(state.data.generatedAt);
   if (state.data.source?.url?.startsWith('https://moligod.com/')) document.querySelector('#sourceLink').href = state.data.source.url;
 }
 
-function recomputeLocalPlan() {
+function recomputeLocalPlan(result = null) {
   if (!state.data.candidatePools) return;
-  const result = calculatePlan(state.data, state.settings);
+  result ??= calculatePlan(state.data, state.settings, state.adoption);
   state.data.plan = result.plan;
   state.data.buyPlan = result.buyPlan;
   state.data.sell = result.sell;
+  state.proposal = result.proposal;
+}
+
+function renderRefreshStatus(status) {
+  document.querySelector('#refreshMarket').disabled = status.checking;
+  document.querySelector('#refreshMarket').textContent = status.checking ? '正在检查…' : '刷新行情';
+  setText('#marketStatus', status.error ? `刷新失败：${status.error}。${state.data ? '已保留最后可用数据。' : '请点击刷新重试。'}`
+    : status.checking ? '正在检查网站行情，不额外采集 Moligod' : '最后成功检查：' + formatDateTime(status.lastSuccess));
+  if (!state.data && status.error) {
+    setText('#freshness','行情读取失败');
+    document.querySelector('#recipeList').innerHTML = '<p class="empty-state">行情读取失败，可使用顶部“刷新行情”重试。</p>';
+  }
+}
+
+function renderProposal() {
+  const { proposal, data } = state;
+  const pending = proposal.needsConfirmation;
+  setText('#activePlanLabel', data.plan.preview ? '待确认方案预览 · 尚未记录采用' : '当前已采用方案');
+  setText('#recipes-title', data.plan.preview ? '待确认的四台方案' : '当前采用的四台方案');
+  const button = document.querySelector('#adoptPlan');
+  button.hidden = !pending; button.disabled = !proposal.canAdopt;
+  setText('#proposalTitle', data.plan.preview ? '先确认下一轮造什么' : pending ? '下一轮有新建议，确认后才换' : '继续当前方案');
+  const rows = (data.plan.preview ? proposal.recipes : proposal.changes).map(row => '<li><strong>' + escapeHtml(row.label) + '</strong>：' + escapeHtml(row.main || '暂缺可用方案') + '</li>').join('');
+  const difference = proposal.weeklyDifference;
+  const comparison = difference == null ? '情景数据齐全后显示收益差额。' : '采用后单号保守周利润预计变化：' + (difference >= 0 ? '+' : '') + moneyWan(difference) + '。';
+  document.querySelector('#proposalDetails').innerHTML = (rows ? '<ul>' + rows + '</ul>' : '<p>其他方案未超过你设置的换配方门槛，无需操作。</p>') +
+    (pending ? '<p>' + comparison + '</p><p>新增材料：' + escapeHtml(proposal.addedMaterials.join('、') || '无') + '；不再需要：' + escapeHtml(proposal.removedMaterials.join('、') || '无') + '。相同材料的数量可能变化，采用后会重算清单。</p>' : '') +
+    data.plan.issues.map(issue=>'<p class="form-error">'+escapeHtml(issue)+'</p>').join('');
+  setText('#buyPlanScope', data.plan.preview ? '待确认方案的备料预览，尚未视为正在生产。' : '按当前已采用方案备料；待确认的新建议不会改变这份清单。');
+  setText('#sellPlanScope', data.plan.preview ? '待确认方案的清仓时段参考' : '当前已采用方案的清仓时段参考');
+  const times = data.plan.recipes.map(row=>Date.parse(row.historyReadAt)).filter(Number.isFinite);
+  setText('#historyStatus', times.length ? '所示配方原生历史读取：' + formatDateTime(Math.min(...times)) + (Math.max(...times)>Math.min(...times) ? ' ～ '+formatDateTime(Math.max(...times)) : '') + '（历史缓存最长约12小时）' : '原生历史读取时间暂不可用');
 }
 
 function renderFreshness() {
@@ -75,7 +132,7 @@ function renderFreshness() {
   pill.classList.toggle('is-fresh', !stale);
   pill.classList.toggle('is-stale', stale);
   document.querySelector('#staleBanner').hidden = !stale;
-  document.querySelector('#planState').textContent = state.data.plan?.locked ? '本周方案' : '随行情调整';
+  document.querySelector('#planState').textContent = state.data.plan?.preview ? '待确认' : '已采用';
 }
 
 function renderRecipes() {
@@ -85,7 +142,7 @@ function renderRecipes() {
     return;
   }
   document.querySelector('#recipeList').innerHTML = recipes.map(item => {
-    if (item.unavailable) return '<article class="recipe-card"><span class="recipe-label">' + escapeHtml(item.label) + '</span><h3>本台暂缓开工</h3><p class="reason">所选时长内暂无当前及保守利润均为正的配方，请在设置中调整。本台未计入合计。</p></article>';
+    if (item.unavailable) return '<article class="recipe-card"><span class="recipe-label">' + escapeHtml(item.label) + '</span><h3>本台数据待确认</h3><p class="reason">' + escapeHtml(item.reason || '暂无可用方案或缺少情景数据，请检查设置并等待行情更新。') + '；合计利润暂不输出。</p></article>';
     const perRun = numberOrNull(item.perRunConservativeProfit);
     const weekly = numberOrNull(item.weeklyConservativeProfit);
     const backup = item.backup ? '备选：' + escapeHtml(item.backup) : '暂无备选配方';
@@ -95,18 +152,19 @@ function renderRecipes() {
       detailRow('Moligod当前净利润', item.currentProfit),
       detailRow('今日最高（仅参考）', item.todayMaxProfit),
       detailRow('7日最高（仅参考）', item.sevenDayMaxProfit),
-      detailRow('单轮保守净利润', perRun),
-      detailRow('连续7天预计净利润', weekly)
+      detailRow('原生历史保守净利润（参考）', item.nativeConservativeProfit),
+      detailRow('本网站估算：每轮保守均值', perRun),
+      detailRow('本网站估算：连续7天净利润', weekly)
     ].filter(Boolean).join('');
     const evidence = item.evidence ? `${item.evidence.source || 'Moligod'} · 最近${state.settings.historyDays}天 · ${item.evidence.sampleCount || 0}条样本${item.evidence.weekendOnly ? ' · 周末数据' : ' · 全时段'} · 每周${item.weeklyRuns}轮` : '历史样本不足';
     const otherMode = item.otherMode ? '<div class="alternate-mode"><span>' + escapeHtml(item.otherMode.mode) + '最佳</span><strong>' + escapeHtml(item.otherMode.name) + ' · ' + item.otherMode.hours + '小时</strong><small>单号周保守 ' + moneyWan(item.otherMode.weeklyProfit) + '</small></div>' : '';
-    return '<article class="recipe-card">' +
+    return '<article class="recipe-card' + (perRun != null && perRun < 0 ? ' is-negative' : '') + '">' +
       '<div class="recipe-card__top"><span class="recipe-label">' + escapeHtml(item.label || item.place) + '</span><span class="duration">' + (item.hours ?? '--') + '小时/轮</span></div>' +
       '<h3 class="recipe-main">' + escapeHtml(item.main || '暂无建议') + '</h3>' +
-      '<div class="recipe-profit"><span>单号每轮保守净赚</span><strong>' + (perRun == null ? '待更新' : moneyWan(perRun)) + '</strong></div>' +
+      '<div class="recipe-profit"><span>现价买料 · 每轮保守均值</span><strong>' + (perRun == null ? '情景待更新' : moneyWan(perRun)) + '</strong></div>' +
       '<p class="reason">' + escapeHtml(item.reason || '按当前行情选择') + '</p>' +
       '<div class="backup-row">' + backup + escapeHtml(deltaText) + '</div>' +
-      otherMode + '<details class="recipe-details"><summary>查看利润依据</summary><div class="detail-list">' + (detail || '<p>明细正在更新，稍后再看。</p>') + '</div><p class="detail-note">' + escapeHtml(evidence) + (item.provisional ? '；历史不足，当前为临时估算。' : '；来自原生特勤收益曲线。') + '</p></details>' +
+      otherMode + '<details class="recipe-details"><summary>查看利润依据</summary><div class="detail-list">' + (detail || '<p>明细正在更新，稍后再看。</p>') + '</div><p class="detail-note">原生参考：' + escapeHtml(evidence) + '。情景配对样本：' + item.scenarioSampleCount + '条；' + (item.provisional ? '情景数据待更新。' : '情景为本网站估算，不是原生利润或保证收益。') + '</p></details>' +
       '</article>';
   }).join('');
 }
@@ -130,15 +188,20 @@ function renderProfit() {
   setText('#conservativeMonthlyCny', monthlyLow == null ? '人民币待更新' : '约 ' + nf.format(monthlyLow * factor / (state.settings.rate * 10_000)) + ' 元');
   setText('#conservativeCny', weeklyLow == null ? '人民币待更新' : '约 ' + nf.format(weeklyLow * factor / (state.settings.rate * 10_000)) + ' 元');
   setText('#highCny', weeklyHigh == null ? '人民币待更新' : '约 ' + nf.format(weeklyHigh * factor / (state.settings.rate * 10_000)) + ' 元');
+  setText('#monthlyHigh', weeklyHigh == null ? '较高情景待更新' : '30天较高：' + moneyWan(weeklyHigh / 7 * 30 * factor) + '，约 ' + nf.format(weeklyHigh / 7 * 30 * factor / (state.settings.rate * 10000)) + ' 元');
   setText('#dailyRange', dailyLow == null ? '待更新' : moneyWan(dailyLow * factor) + (dailyHigh == null ? '' : ' ～ ' + moneyWan(dailyHigh * factor)));
   document.querySelector('#monthlyCard').classList.toggle('is-negative', monthlyLow != null && monthlyLow < 0);
   document.querySelector('#profitBreakdown').innerHTML = [detailRow('单号日均保守', dailyLow), detailRow('单号周保守', weeklyLow),
-    detailRow('单号30天保守', monthlyLow), detailRow('所有账号周利润（未分成）', weeklyLow * state.settings.accounts),
-    detailRow('每周朋友分成', weeklyLow * (state.settings.accounts - factor))].join('');
+    detailRow('单号30天保守', monthlyLow), detailRow('所有账号周利润（未分成）', weeklyLow == null ? null : weeklyLow * state.settings.accounts),
+    detailRow('每周朋友分成', weeklyLow == null ? null : weeklyLow * (state.settings.accounts - factor))].join('') || '<p>情景数据待更新，不输出不完整的合计。</p>';
   document.querySelector('#conservativeCard').classList.toggle('is-negative', weeklyLow != null && weeklyLow < 0);
   document.querySelector('#highCard').classList.toggle('is-negative', weeklyHigh != null && weeklyHigh < 0);
   const basis = profit.basis || state.data.plan?.basis || '按当前材料价和历史周末卖价估算';
   setText('#profitBasis', basis + '；已按 ' + state.settings.accounts + ' 个号、其中 ' + state.settings.sharedAccounts + ' 个分成号（你拿 ' + state.settings.userShare + '%）计算。');
+  const target = profit.target;
+  setText('#targetWeekly', target ? '周保守 ' + moneyWan(target.conservativeWeekly * factor) + ' ～ 较高 ' + moneyWan(target.highWeekly * factor) : '情景数据待更新');
+  setText('#targetIncrease', profit.targetIncrease == null ? '缺少配对成本或可靠买价时不估算低价收益。'
+    : '按建议低价买齐后，周保守预计增加 ' + moneyWan(profit.targetIncrease * factor) + '（约 ' + nf.format(profit.targetIncrease * factor / (state.settings.rate * 10000)) + ' 元），尚未实现。');
 }
 
 function renderBuyShortcut() {
@@ -321,6 +384,23 @@ function openView(target, { updateUrl = true, focus = true } = {}) {
 }
 
 function bindActions() {
+  document.querySelector('#refreshMarket').addEventListener('click', () => state.refresher?.check(true));
+  document.querySelector('#adoptPlan').addEventListener('click', () => {
+    try {
+      const record = adoptProposal(state.proposal);
+      localStorage.setItem(ADOPTION_KEY, JSON.stringify(record));
+      state.adoption = record; renderAll();
+      showToast('已采用，利润和采购清单已切换；收菜时间未改变');
+    } catch (error) { showToast(error.message); }
+  });
+  document.querySelector('#scenarioDays').addEventListener('change', event => {
+    if (!state.data) return;
+    try {
+      const next = { ...state.settings, scenarioDays: Number(event.target.value) };
+      localStorage.setItem('shoucai.settings', JSON.stringify(next));
+      state.settings = next; renderAll();
+    } catch (error) { event.target.value = state.settings.scenarioDays; showToast('保存失败：' + error.message); }
+  });
   document.querySelector('#settingsForm').addEventListener('input', () => setText('#settingsStatus', '有尚未保存的修改，点击“保存并立即重算”后生效。'));
   window.addEventListener('popstate', () => openView(new URLSearchParams(location.search).get('view') || 'home', { updateUrl: false }));
   document.querySelector('#settingsForm').addEventListener('invalid', event => {
@@ -558,6 +638,7 @@ function nonNegativeNumber(value, fallback) { const n = Number(value); return Nu
 function wholeNumber(value, fallback) { const n = Number(value); return Number.isInteger(n) && n > 0 ? n : fallback; }
 function nonNegativeInteger(value, fallback) { const n = Number(value); return Number.isInteger(n) && n >= 0 ? n : fallback; }
 function moneyWan(value) {
+  if (value == null || value === '') return '待更新';
   const amount = Number(value);
   if (!Number.isFinite(amount)) return '--';
   const sign = amount < 0 ? '-' : '';

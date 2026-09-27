@@ -1,5 +1,6 @@
 import { buildWeeklyBuyAdvice } from './engine/buy-window.mjs';
 import { buildPortfolioSaleTiming } from './engine/weekend-prices.mjs';
+import { profitScenario, totalScenarios } from './scenarios.js';
 
 export const PLACES = ['workbench', 'tech', 'pharmacy', 'armory'];
 export const normalize = value => String(value ?? '').toLowerCase().replace(/[\s·×*（）()]/g, '');
@@ -38,7 +39,8 @@ export function migrateSettings(saved = {}, defaults = {}) {
   const buy7 = bounded(saved.buy7, 30, 1, 50);
   const buy14 = bounded(saved.buy14, 15, 1, buy7);
   return {
-    version: 4, accounts, sharedAccounts: Math.floor(bounded(saved.sharedAccounts, defaults.sharedAccounts ?? 10, 0, accounts)),
+    version: 5, accounts, sharedAccounts: Math.floor(bounded(saved.sharedAccounts, defaults.sharedAccounts ?? 10, 0, accounts)),
+    scenarioDays: [7,14,30].includes(Number(saved.scenarioDays)) ? Number(saved.scenarioDays) : 7,
     userShare: bounded(saved.userShare, defaults.ownerSharePercent ?? 80, 0, 100),
     rate: bounded(saved.rate, defaults.haffPerCnyWan ?? 52, 1, 1_000_000),
     budgetWan: bounded(saved.budgetWan, (defaults.buyBudgetPerAccount ?? 10_000_000) / 10_000, 0, 1_000_000_000),
@@ -55,13 +57,13 @@ function validHours(value, fallback) {
   return [...new Set((Array.isArray(value) ? value : fallback).map(Number).filter(hour => hour > 0 && hour <= 168))];
 }
 
-export function rankCandidates(data, settings, place, mode = settings.techMode) {
+export function rankCandidates(data, settings, place, mode = settings.techMode, includeAll = false) {
   const rule = settings.stations[place];
   const hours = place === 'tech' ? rule[`${mode}Hours`] : rule.allowedHours;
   const preferredName = place === 'tech' ? rule[`${mode}Preferred`] : rule.preferred;
   const range = `${settings.historyDays}d`;
   return (data.candidatePools?.[place] ?? [])
-    .filter(item => hours.includes(item.hours) && (place !== 'tech' || (mode === 'short' ? item.category !== 'gun' && item.hours >= 4 && item.hours <= 8 : item.category === 'gun')))
+    .filter(item => includeAll || (hours.includes(item.hours) && (place !== 'tech' || (mode === 'short' ? item.category !== 'gun' && item.hours >= 4 && item.hours <= 8 : item.category === 'gun'))))
     .map(item => {
       const samples = (item.profitSamplesByRange?.[range] ?? (range === '15d' ? item.profitSamples : []) ?? []).map(finite).filter(x => x != null);
       const enough = samples.length >= 24;
@@ -71,7 +73,9 @@ export function rankCandidates(data, settings, place, mode = settings.techMode) 
       const evidence = { ...item.evidence, ...item.evidenceByRange?.[range], range, sampleCount: samples.length,
         weekendOnly: range !== '1d' && (item.evidenceByRange?.[range]?.weekendOnly ?? (range === '15d' && item.evidence?.weekendOnly)),
         provisional: !enough, source: enough ? 'Moligod 原生特勤收益曲线' : 'Moligod 当前配方快照' };
-      return { ...item, conservativeProfit, highProfit, runsPerWeek, weeklyRuns: runsPerWeek,
+      const scenario = profitScenario({ ...item, runsPerWeek }, settings);
+      return { ...item, conservativeProfit, highProfit, runsPerWeek, weeklyRuns: runsPerWeek, scenario,
+        selectionWeeklyProfit: scenario?.conservativeWeekly ?? (data.schemaVersion >= 5 ? null : conservativeProfit * runsPerWeek),
         conservativeWeeklyProfit: conservativeProfit * runsPerWeek, highWeeklyProfit: highProfit * runsPerWeek,
         weeklyConservativeProfit: conservativeProfit * runsPerWeek, weeklyHighProfit: highProfit * runsPerWeek,
         preferred: Boolean(preferredName) && normalize(item.name) === normalize(preferredName), evidence,
@@ -81,54 +85,99 @@ export function rankCandidates(data, settings, place, mode = settings.techMode) 
           display_name: material.name, required_count: material.count, current_price: material.currentPrice, acquisition: material.acquisition
         })) }
       };
-    }).sort((a, b) => b.conservativeWeeklyProfit - a.conservativeWeeklyProfit || a.id - b.id);
+    }).sort((a, b) => (b.selectionWeeklyProfit ?? -Infinity) - (a.selectionWeeklyProfit ?? -Infinity) || a.id - b.id);
 }
 
-export function chooseCandidate(candidates, threshold) {
-  const profitable = candidates.filter(item => item.conservativeProfit > 0 && item.currentProfit > 0 && item.runsPerWeek > 0);
+const score = item => item.selectionWeeklyProfit;
+export function chooseCandidate(candidates, threshold, activeId = null) {
+  const profitable = candidates.filter(item => score(item) > 0 && item.currentProfit > 0 && item.runsPerWeek > 0);
   const best = profitable[0];
   if (!best) return { main: null, backup: null };
-  const preferred = profitable.find(item => item.preferred);
-  const main = preferred && best.conservativeWeeklyProfit <= preferred.conservativeWeeklyProfit * (1 + threshold / 100) ? preferred : best;
+  const preferred = activeId != null ? profitable.find(item => item.id === activeId) : profitable.find(item => item.preferred);
+  const main = preferred && score(best) <= score(preferred) * (1 + threshold / 100) ? preferred : best;
   return { main, backup: profitable.find(item => item.id !== main.id) ?? null };
 }
 
-export function calculatePlan(data, settings) {
-  const recipes = [], recommendations = [];
+export const ADOPTION_KEY = 'shoucai.adoptedPlan';
+export function validAdoption(record) {
+  if (record?.version !== 1 || !Number.isFinite(Date.parse(record.adoptedAt)) || !Array.isArray(record.recipes) || record.recipes.length !== 4) return null;
+  if (!PLACES.every(place => record.recipes.filter(row=>row.place===place && Number.isInteger(row.id) && row.id>0).length === 1)) return null;
+  return record;
+}
+export function adoptProposal(proposal, now = new Date()) {
+  if (!proposal.canAdopt) throw new Error('四台建议尚未齐全，暂不能采用。');
+  return { version: 1, adoptedAt: now.toISOString(), recipes: proposal.recipes.map(row=>({place:row.place,id:row.id,name:row.main,hours:row.hours})) };
+}
+
+function recipeCard(main, backup, place, label, reason, other = null) {
+  if (!main) return {place,label,unavailable:true,reason};
+  return { place, label, id: main.id, main: main.name, hours: main.hours, weeklyRuns: main.runsPerWeek,
+    backup: backup?.name ?? null, backupHours: backup?.hours ?? null,
+    backupDeltaPercent: backup && score(main) > 0 ? (score(backup) / score(main) - 1) * 100 : null,
+    reason, currentCost: main.currentCost, fee: main.currentFee, currentProfit: main.currentProfit,
+    todayMaxProfit: main.todayMaxProfit, sevenDayMaxProfit: main.sevenDayMaxProfit,
+    nativeConservativeProfit: main.conservativeProfit, nativeHighProfit: main.highProfit,
+    perRunConservativeProfit: main.scenario ? main.scenario.conservativeWeekly / main.runsPerWeek : null,
+    weeklyConservativeProfit: main.scenario?.conservativeWeekly ?? null,
+    provisional: !main.scenario, evidence: main.evidence, historyReadAt: main.historyReadAt ?? null,
+    scenarioSampleCount: main.scenario?.sampleCount ?? 0,
+    otherMode: other ? {mode:other.mode,name:other.name,hours:other.hours,weeklyProfit:other.scenario?.conservativeWeekly ?? null} : null };
+}
+
+export function calculatePlan(data, settings, savedAdoption = null) {
+  const adoption = validAdoption(savedAdoption);
+  const recipes = [], recommendations = [], proposalRecipes = [], proposedCandidates = [], activeCandidates = [], issues = [];
   for (const place of PLACES) {
     const rule = settings.stations[place];
     const candidates = rankCandidates(data, settings, place);
-    const { main, backup } = chooseCandidate(candidates, rule.threshold);
+    const adopted = adoption?.recipes.find(row=>row.place===place);
+    const { main, backup } = chooseCandidate(candidates, rule.threshold, adopted?.id);
     const label = data.defaults?.placeRules?.[place]?.label ?? place;
-    if (!main) { recipes.push({ place, label, unavailable: true }); continue; }
+    const current = adopted ? rankCandidates(data,settings,place,settings.techMode,true).find(row=>row.id===adopted.id) : main;
+    let issue = null;
+    if (adopted) {
+      if (!current) issue = '已采用的“' + adopted.name + '”缺少完整行情，需重新选择';
+      else if (!candidates.some(row=>row.id===current.id)) issue = '已采用配方不再符合设置，请确认下一轮方案';
+      else if (current.currentProfit <= 0 || (current.scenario && current.scenario.conservativeWeekly <= 0)) issue = '已采用配方出现亏损，请确认下一轮方案';
+      else if (!current.scenario) issue = '已采用配方情景数据不足，请等待数据更新或重新选择';
+      if (issue) issues.push(`${label}：${issue}`);
+    }
     const other = place === 'tech' ? chooseCandidate(rankCandidates(data, settings, place, settings.techMode === 'short' ? 'long' : 'short'), 0).main : null;
-    recipes.push({ place, label, main: main.name, hours: main.hours, weeklyRuns: main.runsPerWeek,
-      backup: backup?.name ?? null, backupHours: backup?.hours ?? null,
-      backupDeltaPercent: backup ? (backup.conservativeWeeklyProfit / main.conservativeWeeklyProfit - 1) * 100 : null,
-      reason: main.preferred ? `保持常用配方；其他方案保守周利润未高出${rule.threshold}%` : '当前允许范围内保守周利润最高',
-      currentCost: main.currentCost, fee: main.currentFee, currentProfit: main.currentProfit,
-      todayMaxProfit: main.todayMaxProfit, sevenDayMaxProfit: main.sevenDayMaxProfit,
-      perRunConservativeProfit: main.conservativeProfit, perRunHighProfit: main.highProfit,
-      weeklyConservativeProfit: main.conservativeWeeklyProfit, weeklyHighProfit: main.highWeeklyProfit,
-      provisional: main.evidence.provisional, evidence: main.evidence,
-      otherMode: other ? { mode: settings.techMode === 'short' ? '长时枪械' : '短时配件', name: other.name, hours: other.hours,
-        weeklyProfit: other.conservativeWeeklyProfit, provisional: other.evidence.provisional } : null
-    });
-    recommendations.push({ place, label, cashSelected: main, cashCandidates: candidates });
+    const reason = adopted && main?.id === adopted.id ? `保持已采用配方；其他方案保守周利润未高出${rule.threshold}%`
+      : main?.preferred && !adopted ? `常用配方优先；换配方门槛${rule.threshold}%` : '允许范围内按单号保守周利润比较';
+    proposalRecipes.push(recipeCard(main,backup,place,label,reason));
+    recipes.push(recipeCard(current,backup,place,label,issue ?? (adoption ? '已采用方案；新建议须确认后才生效' : reason),
+      other ? {...other,mode:settings.techMode==='short'?'长时枪械':'短时配件'} : null));
+    if (main) proposedCandidates.push(main);
+    if (current) {
+      activeCandidates.push(current);
+      recommendations.push({ place, label, cashSelected: current, cashCandidates: candidates });
+    }
   }
-  const conservativeWeekly = recommendations.reduce((sum, item) => sum + item.cashSelected.conservativeWeeklyProfit, 0);
-  const highWeekly = recommendations.reduce((sum, item) => sum + item.cashSelected.highWeeklyProfit, 0);
-  const provisional = recipes.some(item => item.unavailable || item.provisional);
   const buyPlan = buildWeeklyBuyAdvice({ recommendations, historiesByMaterial: data.materialHistories ?? {},
     now: new Date(data.builtAt ?? data.generatedAt), budgetPerAccount: settings.budgetWan * 10_000,
     materialFilter: { minimumSamples: 336, maxWeeklyCostShare: settings.stableShare / 100, maxPriceSpread: settings.stableSpread / 100 },
     pricePercentiles: { days7: settings.buy7 / 100, days14: settings.buy14 / 100, days30: settings.buy30 / 100 }
   });
+  const current = totalScenarios(activeCandidates,settings);
+  const target = totalScenarios(activeCandidates,settings,buyPlan.materials);
+  const proposed = totalScenarios(proposedCandidates,settings);
+  const changes = proposalRecipes.filter(row => !adoption || adoption.recipes.find(old=>old.place===row.place)?.id !== row.id);
+  const proposedBuy = buildWeeklyBuyAdvice({recommendations:proposedCandidates.map(row=>({place:row.place,cashSelected:row})), now:new Date(data.builtAt??data.generatedAt)});
+  const materialNames = plan => plan.materials.filter(row=>!row.watchOnly).map(row=>row.name);
+  const oldNames = materialNames(buyPlan), newNames = materialNames(proposedBuy);
   return { plan: { recipes, profit: {
-    conservativeWeeklyPerAccount: conservativeWeekly, conservativeDailyPerAccount: conservativeWeekly / 7,
-    conservativeMonthlyPerAccount: conservativeWeekly / 7 * 30, highWeeklyPerAccount: highWeekly, highDailyPerAccount: highWeekly / 7,
-    provisional, basis: `最近${settings.historyDays}天原生净利润：保守${settings.conservativePercentile}%分位、较高${settings.highPercentile}%分位。${provisional ? '部分历史不足或制造台暂停，合计为临时估算。' : '7/15天优先用周末样本。'}实际到手取决于买料成本和售出价。`
-  } }, buyPlan, sell: { ...buildPortfolioSaleTiming(recommendations), undercutLevels: 1 } };
+    conservativeWeeklyPerAccount: current?.conservativeWeekly ?? null, conservativeDailyPerAccount: current?.conservativeDaily ?? null,
+    conservativeMonthlyPerAccount: current?.conservativeMonthly ?? null, highWeeklyPerAccount: current?.highWeekly ?? null,
+    highDailyPerAccount: current ? current.highWeekly/7 : null, provisional: !current,
+    basis: `${adoption?'已采用方案':'待确认方案预览'} · 本网站估算：最近${settings.historyDays}天同点原生利润加回成本，再扣现价买料成本。保守${settings.conservativePercentile}%、较高${settings.highPercentile}%分位。按${settings.scenarioDays}天完整采购摊销（含取整余料），实际收益取决于成交和收菜频率。${current?'':'情景数据待更新，不以原生历史利润代替。'}`,
+    target, targetIncrease: current && target ? target.conservativeWeekly-current.conservativeWeekly : null
+  }, preview: !adoption, issues, adoptedAt: adoption?.adoptedAt ?? null }, buyPlan,
+    proposal: {recipes:proposalRecipes,changes,canAdopt:proposalRecipes.every(row=>!row.unavailable),
+      needsConfirmation:!adoption || changes.length>0, weeklyProfit:proposed?.conservativeWeekly ?? null,
+      weeklyDifference:proposed && current && adoption ? proposed.conservativeWeekly-current.conservativeWeekly : null,
+      addedMaterials:newNames.filter(name=>!oldNames.includes(name)), removedMaterials:oldNames.filter(name=>!newNames.includes(name))},
+    sell: { ...buildPortfolioSaleTiming(recommendations), undercutLevels: 1 } };
 }
 
 export function sortMaterials(rows) {

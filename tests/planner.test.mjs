@@ -69,7 +69,7 @@ test('14-day demand rounds the full period and exchange demand always uses whole
   const result = calculatePlan(data,settings);
   const coffee = result.buyPlan.materials.find(x=>x.name==='咖啡');
   assert.deepEqual([coffee.perAccount7Days,coffee.perAccount14Days,coffee.perAccount30Days],[5,9,19]);
-  assert.equal(result.plan.profit.conservativeMonthlyPerAccount, result.plan.profit.conservativeDailyPerAccount * 30);
+  assert.equal(result.plan.profit.conservativeMonthlyPerAccount, null); // No paired history: do not fabricate a scenario total.
   settings.stations.workbench.weeklyRuns=10;
   assert.equal(calculatePlan(data,settings).buyPlan.materials[0].perAccount7Days,3);
 });

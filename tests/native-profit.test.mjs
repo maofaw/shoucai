@@ -15,6 +15,10 @@ test('native profit uses Moligod profit values and exposes samples for local per
   assert.equal(result.minProfit, 100);
   assert.equal(result.maxProfit, 390);
   assert.ok(result.conservativeProfit > 100 && result.conservativeProfit < result.highProfit);
+  assert.equal(result.pairedHistoryByRange['15d'].length,30);
+  assert.equal(result.pairedHistoryByRange['15d'][0].cost,400);
+  assert.equal(result.pairedHistoryByRange['15d'][0].profit,100);
+  assert.ok(Number.isFinite(Date.parse(result.pairedHistoryByRange['15d'][0].time)));
 });
 
 test('native profit marks missing history provisional instead of inventing data', () => {

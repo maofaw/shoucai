@@ -19,6 +19,7 @@ export function analyzeNativeProfit(recipe, detail, options = {}) {
   const detailRecipe = detail?.crafting?.recipes?.find(item =>
     Number(item.recipe_id) === Number(recipe.id ?? recipe.recipe_id));
   const profitSamplesByRange = {};
+  const pairedHistoryByRange = {};
   const evidenceByRange = {};
   for (const range of ['1d', '7d', '15d']) {
     const rows = (detailRecipe?.charts?.profit?.ranges?.[range] ?? [])
@@ -26,6 +27,11 @@ export function analyzeNativeProfit(recipe, detail, options = {}) {
     const weekend = rows.filter(row => isChinaWeekend(String(row.time ?? ''), options.now ?? new Date()));
     const weekendOnly = range !== '1d' && weekend.length >= 24;
     const selected = weekendOnly ? weekend : rows;
+    pairedHistoryByRange[range] = selected.filter(row => row.cost != null && row.cost !== '' && Number.isFinite(Number(row.cost)) && Number(row.cost) >= 0)
+      .map(row => ({ time: chinaHistoryDate(String(row.time ?? ''), options.now ?? new Date())?.toISOString() ?? null,
+        profit: Number(row.profit), cost: Number(row.cost),
+        revenue: row.revenue == null || row.revenue === '' || !Number.isFinite(Number(row.revenue)) ? null : Number(row.revenue) }))
+      .filter(row => row.time);
     profitSamplesByRange[range] = selected.map(row => Number(row.profit)).sort((a, b) => a - b);
     evidenceByRange[range] = { range, weekendOnly, sampleCount: selected.length, provisional: selected.length < 24,
       source: selected.length >= 24 ? 'Moligod 原生特勤收益曲线' : 'Moligod 当前配方快照' };
@@ -39,6 +45,8 @@ export function analyzeNativeProfit(recipe, detail, options = {}) {
     ...evidenceByRange['15d'],
     profitSamples: profits,
     profitSamplesByRange,
+    pairedHistoryByRange,
+    historyReadAt: options.historyReadAt ?? null,
     evidenceByRange,
     conservativePercentile,
     highPercentile,
@@ -68,10 +76,11 @@ export async function enrichSnapshotWithNativeProfit(snapshot, config, options =
     while (queue.length) {
       const recipe = queue.shift();
       try {
-        const detail = await cachedDetail(recipe.output_object_id, { cacheDir, cacheHours, ...options });
+        const { detail, readAt } = await cachedDetail(recipe.output_object_id, { cacheDir, cacheHours, ...options });
         nativeById.set(Number(recipe.id), analyzeNativeProfit(recipe, detail, {
           conservativePercentile: config.dashboard?.nativeConservativePercentile ?? 0.25,
-          highPercentile: config.dashboard?.nativeHighPercentile ?? 0.75
+          highPercentile: config.dashboard?.nativeHighPercentile ?? 0.75,
+          historyReadAt: readAt
         }));
       } catch (error) {
         nativeById.set(Number(recipe.id), { source: 'Moligod 当前配方快照', sampleCount: 0, provisional: true,
@@ -87,19 +96,25 @@ async function cachedDetail(objectId, options) {
   const file = path.join(options.cacheDir, `${String(objectId).replace(/[^\w.-]/g, '_')}.json`);
   try {
     const stat = fs.statSync(file);
-    if (Date.now() - stat.mtimeMs < options.cacheHours * HOUR_MS) return JSON.parse(fs.readFileSync(file, 'utf8'));
+    if (Date.now() - stat.mtimeMs < options.cacheHours * HOUR_MS) return { detail: JSON.parse(fs.readFileSync(file, 'utf8')), readAt: stat.mtime.toISOString() };
   } catch {}
   const detail = await fetchItemDetail(objectId, options);
   fs.writeFileSync(file, JSON.stringify(detail), 'utf8');
-  return detail;
+  return { detail, readAt: new Date().toISOString() };
 }
 
-function isChinaWeekend(value, now) {
+function chinaHistoryDate(value, now) {
   const match = /^(\d{2})-(\d{2}) (\d{2}):(\d{2})$/.exec(value);
-  if (!match) return false;
+  if (!match) return null;
   let year = new Date(now.getTime() + 8 * HOUR_MS).getUTCFullYear();
   let date = new Date(`${year}-${match[1]}-${match[2]}T${match[3]}:${match[4]}:00+08:00`);
   if (date.getTime() > now.getTime() + 24 * HOUR_MS) date = new Date(`${--year}-${match[1]}-${match[2]}T${match[3]}:${match[4]}:00+08:00`);
+  return Number.isFinite(date.getTime()) ? date : null;
+}
+
+function isChinaWeekend(value, now) {
+  const date = chinaHistoryDate(value, now);
+  if (!date) return false;
   const day = new Date(date.getTime() + 8 * HOUR_MS).getUTCDay();
   return day === 0 || day === 6;
 }

@@ -279,3 +279,20 @@ button:focus-visible, select:focus-visible, summary:focus-visible { outline: 3px
   .material-metrics > div:last-child { grid-column: auto; }
 }
 @media (max-width: 380px) { .app-header { align-items: flex-start; } .status-pill { white-space: normal; text-align: center; } .material-metrics strong { font-size: 14px; } }
+.refresh-strip { max-width: 960px; margin: 0 auto 16px; padding: 0 18px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; color: var(--muted); font-size: 13px; }
+.refresh-strip small { width: 100%; font-size: 12px; overflow-wrap: anywhere; }
+.refresh-strip button { min-height: 44px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 10px; }
+.refresh-strip button:disabled { opacity: .6; }
+.scenario-card, .proposal-card { margin-top: 16px; padding: 16px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+.scenario-card { display: grid; gap: 10px; }
+.scenario-card select { min-height: 48px; width: 100%; padding: 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); color: var(--text); font: inherit; }
+.scenario-card > strong { font-size: 22px; color: var(--success); overflow-wrap: anywhere; }
+.section-heading .section-note { margin: 6px 0 0; }
+.scenario-card .section-note { margin: 0; }
+.profit-card__high { margin-top: 8px; color: var(--muted); font-size: 13px; }
+.recipe-card.is-negative .recipe-profit strong { color: var(--danger); }
+.proposal-card { border-color: var(--primary); }
+.proposal-card p, .proposal-card li { font-size: 14px; line-height: 1.65; overflow-wrap: anywhere; }
+.proposal-card ul { padding-left: 20px; margin: 12px 0; }
+.proposal-card button { margin: 12px 0; }
+.proposal-card small { display: block; color: var(--muted); line-height: 1.6; }

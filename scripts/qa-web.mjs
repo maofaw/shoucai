@@ -58,6 +58,44 @@ try {
   await page.locator('#settingsForm button[type=submit]').click();
   await page.reload(); await ready();
   assert.equal(await page.locator('#userShare').inputValue(), '0');
+  await view('home');
+  assert.match(await page.locator('#activePlanLabel').textContent(),/待确认/);
+  await page.locator('#adoptPlan').click();
+  assert.match(await page.locator('#activePlanLabel').textContent(),/已采用/);
+  const adopted = await page.evaluate(()=>localStorage.getItem('shoucai.adoptedPlan'));
+  const harvest = await page.evaluate(()=>localStorage.getItem('shoucai.lastHarvestFinishedAt'));
+  const recipeNames = await page.locator('.recipe-main').allTextContents();
+  await page.locator('#scenarioDays').selectOption('14');
+  assert.match(await page.locator('#profitBasis').textContent(),/按14天完整采购/);
+  await view('settings'); await page.locator('#accounts').fill('33');
+  const fresh = JSON.parse(fs.readFileSync('web/data/latest.json','utf8'));
+  fresh.builtAt = new Date(Date.parse(fresh.builtAt)+1000).toISOString();
+  await page.route('**/data/version.json?*',route=>route.fulfill({json:{builtAt:fresh.builtAt,generatedAt:fresh.generatedAt}}));
+  await page.route('**/data/latest.json?*',route=>route.fulfill({json:fresh}));
+  await page.locator('#refreshMarket').click();
+  await page.waitForFunction(()=>!document.querySelector('#refreshMarket').disabled);
+  assert.equal(await page.locator('#accounts').inputValue(),'33');
+  assert.equal(await page.evaluate(()=>localStorage.getItem('shoucai.adoptedPlan')),adopted);
+  assert.equal(await page.evaluate(()=>localStorage.getItem('shoucai.lastHarvestFinishedAt')),harvest);
+  assert.deepEqual(await page.locator('.recipe-main').allTextContents(),recipeNames);
+  await page.unroute('**/data/latest.json?*');
+  await page.unroute('**/data/version.json?*');
+  await page.route('**/data/version.json?*',route=>route.abort());
+  await page.route('**/data/latest.json?*',route=>route.abort());
+  await page.locator('#refreshMarket').click();
+  await page.waitForFunction(()=>!document.querySelector('#refreshMarket').disabled);
+  assert.match(await page.locator('#marketStatus').textContent(),/刷新失败.*已保留/);
+  assert.deepEqual(await page.locator('.recipe-main').allTextContents(),recipeNames);
+  await page.unroute('**/data/latest.json?*');
+  await page.unroute('**/data/version.json?*');
+  await page.route('**/data/version.json?*',route=>route.fulfill({json:{builtAt:fresh.builtAt,generatedAt:fresh.generatedAt}}));
+  await page.route('**/data/latest.json?*',route=>route.fulfill({json:fresh}));
+  await page.locator('#refreshMarket').click();
+  await page.waitForFunction(()=>!document.querySelector('#refreshMarket').disabled);
+  assert.match(await page.locator('#marketStatus').textContent(),/最后成功检查/);
+  assert.equal(await page.locator('#accounts').inputValue(),'33');
+  await view('home');
+  await page.screenshot({path:'reports/qa-home-adopted.png',fullPage:true,animations:'disabled'});
   for (const size of [{ width: 375, height: 812 }, { width: 812, height: 375 }, { width: 1440, height: 900 }]) {
     await page.setViewportSize(size);
     for (const name of ['home', 'buy', 'sell', 'settings']) {
@@ -70,6 +108,27 @@ try {
   }
   assert.deepEqual(errors, []);
   await context.close();
+  // Real timers, paused time: periodic and foreground checks read only a tiny
+  // version marker when data has not changed, and do not replace a form draft.
+  const scheduled = await browser.newContext({serviceWorkers:'block'});
+  const timerPage = await scheduled.newPage();
+  await timerPage.clock.install();
+  let versions=0,snapshots=0;
+  timerPage.on('request',request=>{if(request.url().includes('/data/version.json'))versions++;if(request.url().includes('/data/latest.json'))snapshots++;});
+  await timerPage.goto('http://127.0.0.1:4175/?view=settings');
+  await timerPage.waitForFunction(()=>document.querySelector('#accounts').value !== '');
+  await timerPage.locator('#accounts').fill('37');
+  await timerPage.clock.fastForward(300001);
+  await timerPage.waitForFunction(()=>!document.querySelector('#refreshMarket').disabled);
+  assert.equal(versions,1);assert.equal(snapshots,1);
+  await timerPage.evaluate(()=>Object.defineProperty(document,'hidden',{value:true,configurable:true}));
+  await timerPage.clock.fastForward(300001);
+  assert.equal(versions,1);
+  await timerPage.evaluate(()=>{Object.defineProperty(document,'hidden',{value:false,configurable:true});document.dispatchEvent(new Event('visibilitychange'));});
+  await timerPage.waitForFunction(()=>!document.querySelector('#refreshMarket').disabled);
+  assert.equal(versions,2);assert.equal(snapshots,1);
+  assert.equal(await timerPage.locator('#accounts').inputValue(),'37');
+  await scheduled.close();
   // Verify the real service worker can load modules and deep links offline.
   const offline = await browser.newContext();
   const offlinePage = await offline.newPage();
@@ -79,6 +138,7 @@ try {
   await offlinePage.goto('http://127.0.0.1:4175/?view=buy&offline-test=1');
   await offlinePage.waitForFunction(() => document.querySelector('#conservativeWeekly').textContent !== '--');
   assert.equal(await offlinePage.locator('[data-view=buy]').isVisible(), true);
+  assert.match(await offlinePage.locator('#marketStatus').textContent(),/离线缓存/);
   await offline.close();
-  console.log('PASS: mobile/landscape/desktop, settings, native-history evidence, persistent harvest undo, material UI, offline deep links.');
+  console.log('PASS: mobile/landscape/desktop, settings, scenarios, adoption, refresh draft preservation, network recovery, persistent harvest undo and offline deep links.');
 } finally { await browser.close(); server.kill(); }

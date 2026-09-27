@@ -100,7 +100,7 @@ export function buildDashboardData({ snapshot, metadata, recommendations, buyPla
     if (row) row.saleWindows = candidate.priceEvidence?.saleWindows ?? [];
   }
   return {
-    schemaVersion: 4,
+    schemaVersion: 5,
     generatedAt: new Date(generatedAtMs).toISOString(),
     builtAt: generatedAt.toISOString(),
     staleAfterHours: Number(config.dashboard?.staleAfterHours ?? 4),
@@ -192,6 +192,8 @@ function publicCandidate(recipe, rule) {
       values.map(value => round(value)).filter(Number.isFinite)
     ])),
     evidenceByRange: native.evidenceByRange ?? {},
+    pairedHistoryByRange: native.pairedHistoryByRange ?? {},
+    historyReadAt: native.historyReadAt ?? null,
     evidence: { source: native.source ?? 'Moligod 当前配方快照', sampleCount: Number(native.sampleCount ?? 0),
       weekendOnly: Boolean(native.weekendOnly), provisional: Boolean(native.provisional ?? true), range: native.range ?? null },
     preferred: (rule.preferredNames ?? []).some(name => normalize(name) === normalize(recipe.output_display_name || recipe.output_name)),
