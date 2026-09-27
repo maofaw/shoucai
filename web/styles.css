@@ -315,9 +315,12 @@ body:has(.recipe-picker[open]) { overflow: hidden; }
 }
 @media (max-width: 380px) { .app-header { align-items: flex-start; } .status-pill { white-space: normal; text-align: center; } .material-metrics strong { font-size: 14px; } .recipe-picker__metrics { grid-template-columns: 1fr; } }
 .refresh-strip { max-width: 960px; margin: 0 auto 16px; padding: 0 18px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; color: var(--muted); font-size: 13px; }
-.refresh-strip small { width: 100%; font-size: 12px; overflow-wrap: anywhere; }
+.refresh-strip small { display: block; font-size: 12px; overflow-wrap: anywhere; }
 .refresh-strip button { min-height: 44px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 10px; }
 .refresh-strip button:disabled { opacity: .6; }
+.refresh-details { width: 100%; }
+.refresh-details summary { min-height: 44px; display: inline-flex; align-items: center; color: var(--primary-strong); cursor: pointer; }
+.refresh-details small { padding: 4px 0 8px; }
 .scenario-card, .proposal-card { margin-top: 16px; padding: 16px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
 .scenario-card { display: grid; gap: 10px; }
 .scenario-card select { min-height: 48px; width: 100%; padding: 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); color: var(--text); font: inherit; }
@@ -422,7 +425,17 @@ body:has(.recipe-picker[open]) { overflow: hidden; }
 .select-row select { min-height: 46px; padding: 9px 11px; color: var(--text); background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; font: inherit; }
 .plan-detail { margin-top: 12px; }
 .plan-detail .plan-option { box-shadow: none; }
-.opportunity-card--stable { border-color: rgba(96,214,167,.45); }
+.opportunity-card--stable { padding: 0; overflow: hidden; border-color: rgba(96,214,167,.45); }
+.stable-opportunity-summary { min-height: 76px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; cursor: pointer; list-style: none; }
+.stable-opportunity-summary::-webkit-details-marker { display: none; }
+.stable-opportunity-summary > div { min-width: 0; display: flex; align-items: center; gap: 10px; }
+.stable-opportunity-summary h3 { overflow-wrap: anywhere; }
+.stable-opportunity-summary p { color: var(--muted); font-size: 12px; }
+.stable-opportunity-summary > strong { flex: 0 0 auto; color: var(--success); font-size: 16px; text-align: right; font-variant-numeric: tabular-nums; }
+.stable-opportunity-summary > strong small { display: block; color: var(--faint); font-size: 11px; font-weight: 500; }
+.stable-opportunity-rank { width: 28px; height: 28px; flex: 0 0 28px; display: grid; place-items: center; border-radius: 9px; color: var(--bg); background: var(--success); font-size: 13px; font-weight: 900; }
+.opportunity-card__body { padding: 0 14px 14px; border-top: 1px solid var(--border); }
+.opportunity-card__body .opportunity-card__head { padding-top: 12px; }
 .material-group { border: 1px solid var(--border); border-radius: 13px; background: rgba(18,25,37,.72); overflow: clip; }
 .material-group > summary { min-height: 52px; display: flex; align-items: center; justify-content: space-between; padding: 0 14px; color: var(--text); font-weight: 800; cursor: pointer; }
 .material-group > summary b { color: var(--muted); font-size: 12px; }
@@ -440,6 +453,8 @@ body:has(.recipe-picker[open]) { overflow: hidden; }
   .content { padding-left: 12px; padding-right: 12px; }
   .profit-card { min-height: 136px; padding: 14px; }
   .profit-card__value { font-size: clamp(25px,8vw,34px); }
-  .plan-tabs { grid-template-columns: repeat(4, minmax(92px, 1fr)); }
+  .plan-tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); overflow: visible; }
   .mode-card { align-items: flex-start; }
+  .refresh-strip { margin-bottom: 8px; }
+  .stable-opportunity-summary > strong { font-size: 14px; }
 }

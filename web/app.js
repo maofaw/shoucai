@@ -169,7 +169,9 @@ function renderMode() {
   document.body.classList.toggle('is-lazy-mode', state.lazy.enabled);
   document.querySelector('#lazyModeToggle').checked = state.lazy.enabled;
   document.querySelector('#lazyModeSetting').checked = state.lazy.enabled;
+  document.querySelector('.mode-card .switch b').textContent = state.lazy.enabled ? '已开启' : '开启';
   document.querySelector('#lazyAdvanced').hidden = !state.lazy.enabled;
+  document.querySelector('#backToLazyHome').hidden = !state.lazy.enabled;
   setText('#homeModeNote', state.lazy.enabled ? '懒人模式 · 材料按现价购买 · 周末卖出' : '本网站估算 · 已扣分成，不代表保证到手');
   document.querySelectorAll('.nav-advanced').forEach(node => { node.hidden = state.lazy.enabled; });
   const nav = document.querySelector('.bottom-nav');
@@ -469,10 +471,10 @@ function renderOpportunities() {
   if (!stable.length) stableList.innerHTML = '<div class="empty-state">目前没有同时通过“30天多周低价复现”和“成品利润稳定”验证的材料。宁可空缺，也不把一次暴跌当长期机会。</div>';
   else stableList.innerHTML = stable.slice(0, 3).map((item, index) => {
     const totalCount = state.settings.accounts > 0 ? nf.format(Math.ceil(item.requiredPerAccount * state.settings.accounts)) + '个' : '设置账号数后计算';
-    return '<article class="opportunity-card opportunity-card--stable"><div class="opportunity-card__head"><div><h3>' + (index + 1) + '. ' + escapeHtml(item.name) + '</h3><p class="opportunity-card__price">长期建议不高于 <b>' + nf.format(item.targetPrice) + '</b>（现价 ' + nf.format(item.currentPrice) + '）</p></div><span>' + (item.stability?.repeatWeeks ?? 0) + '周复现</span></div>' +
+    return '<details class="opportunity-card opportunity-card--stable"><summary class="stable-opportunity-summary"><div><span class="stable-opportunity-rank">' + (index + 1) + '</span><div><h3>' + escapeHtml(item.name) + '</h3><p>建议价 ≤ ' + nf.format(item.targetPrice) + ' · ' + (item.stability?.repeatWeeks ?? 0) + '周复现</p></div></div><strong>' + profitDisplay(item.plan.conservativeMonthly) + '<small>月保守</small></strong></summary><div class="opportunity-card__body"><div class="opportunity-card__head"><p class="opportunity-card__price">现价 ' + nf.format(item.currentPrice) + '，长期建议不高于 <b>' + nf.format(item.targetPrice) + '</b></p><span>各周低价差 ' + (item.stability?.lowDeviationPercent?.toFixed(1) ?? '--') + '%</span></div>' +
       '<div class="opportunity-card__metrics"><div><span>单号买30天</span><strong>' + nf.format(Math.ceil(item.requiredPerAccount)) + '个</strong></div><div><span>全部账号数量</span><strong>' + totalCount + '</strong></div><div><span>保守月利润</span><strong>' + profitDisplay(item.plan.conservativeMonthly) + '</strong></div><div><span>较高月利润</span><strong>' + profitDisplay(item.plan.highMonthly) + '</strong></div></div>' +
       '<p class="opportunity-card__note">' + escapeHtml(item.stability?.reason || '多周低价验证通过') + '；各周低价差异 ' + (item.stability?.lowDeviationPercent?.toFixed(1) ?? '--') + '%。</p>' +
-      '<button class="secondary-button" type="button" data-preview-opportunity="' + escapeHtml(item.key) + '" data-stable-opportunity="true">预览这套方案</button><button class="material-stock-button" type="button" data-stock-material="' + escapeHtml(item.name) + '" data-stock-price="' + item.targetPrice + '" data-stock-days="30">已囤到货</button></article>';
+      '<button class="secondary-button" type="button" data-preview-opportunity="' + escapeHtml(item.key) + '" data-stable-opportunity="true">预览这套方案</button><button class="material-stock-button" type="button" data-stock-material="' + escapeHtml(item.name) + '" data-stock-price="' + item.targetPrice + '" data-stock-days="30">已囤到货</button></div></details>';
   }).join('');
 }
 
@@ -718,6 +720,7 @@ function bindActions() {
   }));
   document.querySelector('#openPlans').addEventListener('click', () => openView('plans'));
   document.querySelector('#lazyAdvanced').addEventListener('click', () => { state.lazy.advanced = true; saveLazyState(); openView('plans'); });
+  document.querySelector('#backToLazyHome').addEventListener('click', () => openView('home'));
   document.querySelectorAll('#lazyModeToggle, #lazyModeSetting').forEach(input => input.addEventListener('change', event => {
     setLazyMode(event.target.checked);
   }));
@@ -833,6 +836,7 @@ function bindActions() {
   });
   document.querySelector('#settingsForm').addEventListener('input', event => {
     if (event.target.id === 'shortWeeklyRuns') updateShortRunsHint(event.target.value);
+    if (event.target.id === 'lazyModeSetting') return;
     setText('#settingsStatus', '有尚未保存的修改，点击“保存并立即重算”后生效。');
   });
   window.addEventListener('popstate', () => openView(new URLSearchParams(location.search).get('view') || 'home', { updateUrl: false }));

@@ -119,8 +119,20 @@ try {
   assert.equal(await page.locator('#lazyMaterialSummary').isVisible(), true);
   await page.locator('.mode-card .switch').click();
   assert.equal(await page.locator('body').evaluate(node => node.classList.contains('is-lazy-mode')), false);
+  await view('settings');
+  const modeStatusBefore = await page.locator('#settingsStatus').textContent();
+  await page.locator('#lazyModeSetting').click();
+  assert.equal(await page.locator('#settingsStatus').textContent(), modeStatusBefore);
+  await page.locator('#lazyModeSetting').click();
+  assert.equal(await page.locator('#settingsStatus').textContent(), modeStatusBefore);
+  await view('buy');
+  assert.equal(await page.locator('#stableOpportunityList > details:not([open])').count() > 0, true);
+  await view('plans');
+  assert.equal(await page.locator('#planTabs button').count(), 4);
+  await view('home');
   await page.screenshot({path:'reports/qa-home-adopted.png',fullPage:true,animations:'disabled'});
   await view('buy');
+  await page.locator('#stableOpportunityList > details').first().locator('summary').click();
   const stockButton = page.locator('#stableOpportunityList [data-stock-material]').first();
   if (await stockButton.count()) {
     await stockButton.click();
@@ -139,6 +151,15 @@ try {
       if (name === 'settings') await page.locator('#settingsForm details').evaluateAll(nodes => nodes.forEach(node => node.open = true));
       const layout = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, width: innerWidth }));
       assert.ok(layout.scroll <= layout.width, `${size.width}px ${name}: overflow ${JSON.stringify(layout)}`);
+      if (size.width === 375) {
+        const tooSmall = await page.evaluate(() => [...document.querySelectorAll('button,a,summary,input,select')].filter(node => {
+          const style = getComputedStyle(node), rect = node.getBoundingClientRect();
+          if (style.display === 'none' || style.visibility === 'hidden' || rect.width === 0 || rect.height === 0 || node.disabled) return false;
+          if (node.matches('input[type=checkbox],input[type=radio]')) return false;
+          return rect.width < 44 || rect.height < 44;
+        }).map(node => ({ tag: node.tagName, id: node.id, text: node.textContent?.trim().slice(0,30), width: Math.round(node.getBoundingClientRect().width), height: Math.round(node.getBoundingClientRect().height) })));
+        assert.deepEqual(tooSmall, [], `${name}: touch targets below 44px ${JSON.stringify(tooSmall)}`);
+      }
       if (size.width === 375 && ['buy', 'settings'].includes(name)) await page.screenshot({ path: `reports/qa-${name}.png`, fullPage: true, animations: 'disabled' });
     }
   }
