@@ -8,7 +8,7 @@
   <title>三角洲收菜助手</title>
   <link rel="icon" type="image/svg+xml" href="./favicon.svg">
   <link rel="manifest" href="./manifest.webmanifest">
-  <link rel="stylesheet" href="./styles.css?v=17">
+  <link rel="stylesheet" href="./styles.css?v=18">
 </head>
 <body>
   <a class="skip-link" href="#main">跳到主要内容</a>
@@ -96,11 +96,17 @@
           <label for="budget">每个号本次最多花多少买料</label><div class="input-suffix"><input id="budget" name="budget" type="number" inputmode="decimal" min="0" step="0.1" required><span>万哈夫币</span></div>
           <button class="group-reset" type="button" data-reset-group="basic">恢复本组默认</button>
         </div></details>
+        <details><summary>短时制造节奏</summary><div class="settings-group">
+          <label for="shortWeeklyRuns">8小时以内每周实际收取轮数</label>
+          <input id="shortWeeklyRuns" type="number" inputmode="decimal" min="0.5" max="42" step="0.5" required aria-describedby="shortRunsHint">
+          <small id="shortRunsHint">统一用于工作台、制药台、防具台和技术中心短时配件。</small>
+          <button class="group-reset" type="button" data-reset-group="short">恢复本组默认</button>
+        </div></details>
         <details><summary>工作台、制药台、防具台</summary><div id="stationSettings" class="settings-group"></div><button class="group-reset" type="button" data-reset-group="stations">恢复本组默认</button></details>
         <details><summary>技术中心模式</summary><div class="settings-group">
           <label for="techMode">当前模式</label><select id="techMode"><option value="long">长时枪械（16/24小时）</option><option value="short">短时配件（4–8小时）</option></select>
           <label for="techThreshold">换配方门槛</label><div class="input-suffix"><input id="techThreshold" type="number" min="0" max="100" step="0.5" required><span>%</span></div>
-          <small>两种模式分别保存允许时长、常用配方和周轮数。短时默认每周17.5轮。</small>
+          <small>长时枪械分别设置16/24小时轮数；短时配件使用上方统一轮数。</small>
           <div id="techSettings"></div>
           <button class="group-reset" type="button" data-reset-group="tech">恢复本组默认</button>
         </div></details>
@@ -125,6 +131,16 @@
       <article class="source-card"><span>行情来源与更新时间</span><a id="sourceLink" href="https://moligod.com/crafting" target="_blank" rel="noreferrer">Moligod 特勤处制造</a><small id="sourceTime">--</small></article>
     </section>
   </main>
+  <dialog id="recipePicker" class="recipe-picker" aria-labelledby="recipePickerTitle">
+    <form id="recipePickerForm" method="dialog">
+      <div class="recipe-picker__head"><div><p class="eyebrow">只更换这一台</p><h2 id="recipePickerTitle">选择制造配方</h2></div><button id="closeRecipePicker" class="dialog-close" type="button" aria-label="关闭配方选择">×</button></div>
+      <label for="recipePickerSelect">要制造的配方</label>
+      <select id="recipePickerSelect" required></select>
+      <div id="recipePickerPreview" class="recipe-picker__preview" aria-live="polite"></div>
+      <p id="recipePickerError" class="form-error" role="alert" hidden></p>
+      <div class="recipe-picker__actions"><button id="confirmRecipePicker" class="primary-button" type="submit">确认更换本台</button><button id="cancelRecipePicker" class="secondary-button" type="button">取消</button></div>
+    </form>
+  </dialog>
   <nav class="bottom-nav" aria-label="主要导航">
     <button class="nav-item is-active" type="button" data-target="home" aria-controls="main" aria-current="page"><svg class="icon"><use href="#i-home"/></svg><span>首页</span></button>
     <button class="nav-item" type="button" data-target="buy" aria-controls="main"><svg class="icon"><use href="#i-box"/></svg><span>买料</span></button>
@@ -133,6 +149,6 @@
   </nav>
   <div id="toast" class="toast" role="status" aria-live="polite" hidden><span id="toastMessage"></span><button id="toastAction" type="button" hidden>撤销</button></div>
   <script src="./runtime-config.js"></script>
-  <script type="module" src="./app.js?v=17"></script>
+  <script type="module" src="./app.js?v=18"></script>
 </body>
 </html>

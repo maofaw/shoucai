@@ -37,7 +37,7 @@ test('complete totals use exactly 30 days and account sharing is a downstream mu
   assert.equal(totalScenarios([candidate()],settings),null);
 });
 
-const defaults={placeRules:Object.fromEntries(['workbench','tech','pharmacy','armory'].map(place=>[place,{label:place,allowedHours:[8],weeklyRuns:1,
+const defaults={shortWeeklyRuns:1,placeRules:Object.fromEntries(['workbench','tech','pharmacy','armory'].map(place=>[place,{label:place,allowedHours:[8],weeklyRuns:1,
   longHours:[16],shortHours:[8],weeklyRunsByHours:{16:1},switchThreshold:.05}]))};
 const data = () => ({schemaVersion:5,defaults,generatedAt:'2026-09-24T00:00:00Z',builtAt:'2026-09-24T00:00:00Z',materialHistories:{},
  candidatePools:{workbench:[candidate(1),candidate(2)],tech:[candidate(3,'tech',{hours:16,category:'gun'})],pharmacy:[candidate(4,'pharmacy')],armory:[candidate(5,'armory')]}});

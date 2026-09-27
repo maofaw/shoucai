@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { migrateSettings, calculatePlan, rankCandidates, chooseCandidate, sortMaterials } from '../web/planner.js';
+import { migrateSettings, calculatePlan, rankCandidates, chooseCandidate, sortMaterials, adoptProposal, adoptRecipe } from '../web/planner.js';
 
 const defaults = { accounts: 28, sharedAccounts: 10, ownerSharePercent: 80, haffPerCnyWan: 52, placeRules: {
   workbench: { label: '工作台', allowedHours: [8], weeklyRuns: 17.5 },
@@ -19,6 +19,7 @@ test('migration preserves accounts, zero owner share, mode-specific rules and ex
   assert.equal(settings.accounts, 32); assert.equal(settings.sharedAccounts, 12); assert.equal(settings.userShare, 0);
   assert.equal(settings.stations.workbench.preferred, ''); assert.equal(settings.stations.tech.runsByHours[8], 12);
   assert.equal(settings.stations.tech.runsByHours[6], 17.5); assert.equal(settings.stations.tech.shortPreferred, '配件');
+  assert.equal(settings.shortWeeklyRuns, 12); assert.equal(settings.version, 6);
   assert.equal(migrateSettings(null, defaults).accounts, 28);
 });
 
@@ -70,8 +71,36 @@ test('14-day demand rounds the full period and exchange demand always uses whole
   const coffee = result.buyPlan.materials.find(x=>x.name==='咖啡');
   assert.deepEqual([coffee.perAccount7Days,coffee.perAccount14Days,coffee.perAccount30Days],[5,9,19]);
   assert.equal(result.plan.profit.conservativeMonthlyPerAccount, null); // No paired history: do not fabricate a scenario total.
-  settings.stations.workbench.weeklyRuns=10;
+  settings.shortWeeklyRuns=10;
   assert.equal(calculatePlan(data,settings).buyPlan.materials[0].perAccount7Days,3);
+});
+
+test('one short weekly cadence applies to every recipe at or below eight hours but not long tech recipes', () => {
+  const data = dataFor({
+    workbench: [sample(1)],
+    tech: [sample(2, 'tech', { hours: 4 }), sample(3, 'tech', { hours: 16, category: 'gun' })],
+    pharmacy: [sample(4, 'pharmacy', { hours: 7 })],
+    armory: [sample(5, 'armory')]
+  });
+  const settings = migrateSettings({ shortWeeklyRuns: 12, techMode: 'short' }, defaults);
+  settings.stations.pharmacy.allowedHours = [7];
+  assert.equal(rankCandidates(data, settings, 'workbench')[0].runsPerWeek, 12);
+  assert.equal(rankCandidates(data, settings, 'tech')[0].runsPerWeek, 12);
+  assert.equal(rankCandidates(data, settings, 'pharmacy')[0].runsPerWeek, 12);
+  assert.equal(rankCandidates(data, settings, 'armory')[0].runsPerWeek, 12);
+  assert.equal(rankCandidates(data, settings, 'tech', 'long')[0].runsPerWeek, 9);
+});
+
+test('adopting one recipe changes only that station and can bootstrap from a complete proposal', () => {
+  const data = dataFor({ workbench: [sample(1), sample(6)], tech: [sample(2, 'tech', { hours: 16, category: 'gun' })], pharmacy: [sample(3, 'pharmacy')], armory: [sample(4, 'armory')] });
+  const settings = migrateSettings({}, defaults);
+  const initial = calculatePlan(data, settings);
+  const adopted = adoptProposal(initial.proposal, new Date('2026-09-27T00:00:00Z'));
+  const changed = adoptRecipe(adopted, initial.proposal, 'workbench', rankCandidates(data, settings, 'workbench').find(row => row.id === 6), new Date('2026-09-27T01:00:00Z'));
+  assert.equal(changed.recipes.find(row => row.place === 'workbench').id, 6);
+  assert.deepEqual(changed.recipes.filter(row => row.place !== 'workbench'), adopted.recipes.filter(row => row.place !== 'workbench'));
+  const bootstrapped = adoptRecipe(null, initial.proposal, 'workbench', rankCandidates(data, settings, 'workbench').find(row => row.id === 6));
+  assert.equal(bootstrapped.recipes.length, 4);
 });
 
 test('unknown material prices remain unknown and cannot be hidden as cheap stable materials', () => {

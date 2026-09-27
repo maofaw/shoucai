@@ -15,6 +15,13 @@ export function quantile(values, probability) {
 
 export function migrateSettings(saved = {}, defaults = {}) {
   if (!saved || typeof saved !== 'object' || Array.isArray(saved)) saved = {};
+  const legacyShortRuns = [
+    saved.shortWeeklyRuns,
+    saved.stations?.workbench?.weeklyRuns,
+    saved.stations?.tech?.runsByHours?.[8],
+    saved.stations?.pharmacy?.weeklyRuns,
+    saved.stations?.armory?.weeklyRuns
+  ].map(finite).find(value => value != null);
   const stations = {};
   for (const place of PLACES) {
     const rule = defaults.placeRules?.[place] ?? {};
@@ -39,7 +46,8 @@ export function migrateSettings(saved = {}, defaults = {}) {
   const buy7 = bounded(saved.buy7, 30, 1, 50);
   const buy14 = bounded(saved.buy14, 15, 1, buy7);
   return {
-    version: 5, accounts, sharedAccounts: Math.floor(bounded(saved.sharedAccounts, defaults.sharedAccounts ?? 10, 0, accounts)),
+    version: 6, accounts, sharedAccounts: Math.floor(bounded(saved.sharedAccounts, defaults.sharedAccounts ?? 10, 0, accounts)),
+    shortWeeklyRuns: bounded(legacyShortRuns, defaults.shortWeeklyRuns ?? 17.5, 0.5, 42),
     scenarioDays: [7,14,30].includes(Number(saved.scenarioDays)) ? Number(saved.scenarioDays) : 7,
     userShare: bounded(saved.userShare, defaults.ownerSharePercent ?? 80, 0, 100),
     rate: bounded(saved.rate, defaults.haffPerCnyWan ?? 52, 1, 1_000_000),
@@ -69,7 +77,10 @@ export function rankCandidates(data, settings, place, mode = settings.techMode, 
       const enough = samples.length >= 24;
       const conservativeProfit = enough ? quantile(samples, settings.conservativePercentile / 100) : finite(item.currentProfit);
       const highProfit = enough ? quantile(samples, settings.highPercentile / 100) : finite(item.currentProfit);
-      const runsPerWeek = Math.min(168 / item.hours, place === 'tech' ? rule.runsByHours[item.hours] ?? 17.5 : rule.weeklyRuns);
+      const configuredRuns = item.hours <= 8
+        ? settings.shortWeeklyRuns
+        : place === 'tech' ? rule.runsByHours[item.hours] ?? 168 / item.hours : rule.weeklyRuns;
+      const runsPerWeek = Math.min(168 / item.hours, configuredRuns);
       const evidence = { ...item.evidence, ...item.evidenceByRange?.[range], range, sampleCount: samples.length,
         weekendOnly: range !== '1d' && (item.evidenceByRange?.[range]?.weekendOnly ?? (range === '15d' && item.evidence?.weekendOnly)),
         provisional: !enough, source: enough ? 'Moligod 原生特勤收益曲线' : 'Moligod 当前配方快照' };
@@ -109,6 +120,27 @@ export function adoptProposal(proposal, now = new Date()) {
   return { version: 1, adoptedAt: now.toISOString(), recipes: proposal.recipes.map(row=>({place:row.place,id:row.id,name:row.main,hours:row.hours})) };
 }
 
+export function adoptRecipe(savedAdoption, proposal, place, recipe, now = new Date()) {
+  if (!PLACES.includes(place)) throw new Error('找不到要更换的制造台。');
+  if (!Number.isInteger(recipe?.id) || recipe.id <= 0 || !recipe.name || !Number.isFinite(Number(recipe.hours))) {
+    throw new Error('所选配方数据不完整，请刷新行情后重试。');
+  }
+  const current = validAdoption(savedAdoption);
+  const base = current?.recipes ?? (proposal?.canAdopt ? proposal.recipes.map(row => ({
+    place: row.place, id: row.id, name: row.main, hours: row.hours
+  })) : null);
+  if (!base || !PLACES.every(key => base.some(row => row.place === key))) {
+    throw new Error('其他制造台方案尚未齐全，暂不能保存本台配方。');
+  }
+  return {
+    version: 1,
+    adoptedAt: now.toISOString(),
+    recipes: base.map(row => row.place === place
+      ? { place, id: recipe.id, name: recipe.name, hours: Number(recipe.hours) }
+      : { place: row.place, id: row.id, name: row.name, hours: row.hours })
+  };
+}
+
 function recipeCard(main, backup, place, label, reason, other = null) {
   if (!main) return {place,label,unavailable:true,reason};
   return { place, label, id: main.id, main: main.name, hours: main.hours, weeklyRuns: main.runsPerWeek,
@@ -145,9 +177,18 @@ export function calculatePlan(data, settings, savedAdoption = null) {
     const other = place === 'tech' ? chooseCandidate(rankCandidates(data, settings, place, settings.techMode === 'short' ? 'long' : 'short'), 0).main : null;
     const reason = adopted && main?.id === adopted.id ? `保持已采用配方；其他方案保守周利润未高出${rule.threshold}%`
       : main?.preferred && !adopted ? `常用配方优先；换配方门槛${rule.threshold}%` : '允许范围内按单号保守周利润比较';
-    proposalRecipes.push(recipeCard(main,backup,place,label,reason));
-    recipes.push(recipeCard(current,backup,place,label,issue ?? (adoption ? '已采用方案；新建议须确认后才生效' : reason),
-      other ? {...other,mode:settings.techMode==='short'?'长时枪械':'短时配件'} : null));
+    const proposalCard = recipeCard(main,backup,place,label,reason);
+    const currentCard = recipeCard(current,backup,place,label,issue ?? (adoption ? '已采用方案；新建议须确认后才生效' : reason),
+      other ? {...other,mode:settings.techMode==='short'?'长时枪械':'短时配件'} : null);
+    if (adopted && current && main && main.id !== current.id) {
+      currentCard.suggestion = {
+        id: main.id, name: main.name, hours: main.hours,
+        weeklyDifference: score(main) - score(current),
+        increasePercent: score(current) > 0 ? (score(main) / score(current) - 1) * 100 : null
+      };
+    }
+    proposalRecipes.push(proposalCard);
+    recipes.push(currentCard);
     if (main) proposedCandidates.push(main);
     if (current) {
       activeCandidates.push(current);

@@ -1,5 +1,5 @@
 import { materialCostForDays, suggestedDaysForBudget } from './budget.js';
-import { migrateSettings, calculatePlan, sortMaterials as orderMaterials, normalize as normalizeText, ADOPTION_KEY, validAdoption, adoptProposal } from './planner.js';
+import { migrateSettings, calculatePlan, rankCandidates, sortMaterials as orderMaterials, normalize as normalizeText, ADOPTION_KEY, validAdoption, adoptProposal, adoptRecipe } from './planner.js';
 import { recordHarvest, revertHarvest, pendingUndo, serialQueue } from './harvest.js';
 import { createMarketRefresher, MARKET_CHECK_MS } from './market-refresh.js';
 
@@ -14,7 +14,8 @@ const state = {
   adminKey: location.hash.startsWith('#manage=') ? decodeURIComponent(location.hash.slice('#manage='.length)) : '',
   apiBase: String(window.SHOUCAI_CONFIG?.apiBase ?? '').replace(/\/$/, ''),
   countdownTimer: null,
-  undoTimer: null
+  undoTimer: null,
+  recipePicker: null
 };
 const queueRemote = serialQueue();
 
@@ -142,7 +143,7 @@ function renderRecipes() {
     return;
   }
   document.querySelector('#recipeList').innerHTML = recipes.map(item => {
-    if (item.unavailable) return '<article class="recipe-card"><span class="recipe-label">' + escapeHtml(item.label) + '</span><h3>本台数据待确认</h3><p class="reason">' + escapeHtml(item.reason || '暂无可用方案或缺少情景数据，请检查设置并等待行情更新。') + '；合计利润暂不输出。</p></article>';
+    if (item.unavailable) return '<article class="recipe-card"><span class="recipe-label">' + escapeHtml(item.label) + '</span><h3>本台数据待确认</h3><p class="reason">' + escapeHtml(item.reason || '暂无可用方案或缺少情景数据，请检查设置并等待行情更新。') + '；合计利润暂不输出。</p><button class="recipe-change-button" type="button" data-change-recipe="' + item.place + '">重新选择本台配方</button></article>';
     const perRun = numberOrNull(item.perRunConservativeProfit);
     const weekly = numberOrNull(item.weeklyConservativeProfit);
     const backup = item.backup ? '备选：' + escapeHtml(item.backup) : '暂无备选配方';
@@ -158,15 +159,78 @@ function renderRecipes() {
     ].filter(Boolean).join('');
     const evidence = item.evidence ? `${item.evidence.source || 'Moligod'} · 最近${state.settings.historyDays}天 · ${item.evidence.sampleCount || 0}条样本${item.evidence.weekendOnly ? ' · 周末数据' : ' · 全时段'} · 每周${item.weeklyRuns}轮` : '历史样本不足';
     const otherMode = item.otherMode ? '<div class="alternate-mode"><span>' + escapeHtml(item.otherMode.mode) + '最佳</span><strong>' + escapeHtml(item.otherMode.name) + ' · ' + item.otherMode.hours + '小时</strong><small>单号周保守 ' + moneyWan(item.otherMode.weeklyProfit) + '</small></div>' : '';
+    const suggestion = item.suggestion ? '<div class="recipe-suggestion"><div><span>网站发现更高收益方案</span><strong>' + escapeHtml(item.suggestion.name) + ' · ' + item.suggestion.hours + '小时</strong><small>单号保守周利润预计增加 ' + moneyWan(item.suggestion.weeklyDifference) + (item.suggestion.increasePercent == null ? '' : '（+' + item.suggestion.increasePercent.toFixed(1) + '%）') + '</small></div><button type="button" data-change-recipe="' + item.place + '" data-recipe-id="' + item.suggestion.id + '">查看并采用</button></div>' : '';
     return '<article class="recipe-card' + (perRun != null && perRun < 0 ? ' is-negative' : '') + '">' +
       '<div class="recipe-card__top"><span class="recipe-label">' + escapeHtml(item.label || item.place) + '</span><span class="duration">' + (item.hours ?? '--') + '小时/轮</span></div>' +
       '<h3 class="recipe-main">' + escapeHtml(item.main || '暂无建议') + '</h3>' +
       '<div class="recipe-profit"><span>现价买料 · 每轮保守均值</span><strong>' + (perRun == null ? '情景待更新' : moneyWan(perRun)) + '</strong></div>' +
       '<p class="reason">' + escapeHtml(item.reason || '按当前行情选择') + '</p>' +
-      '<div class="backup-row">' + backup + escapeHtml(deltaText) + '</div>' +
+      '<div class="backup-row">' + backup + escapeHtml(deltaText) + '</div>' + suggestion +
+      '<button class="recipe-change-button" type="button" data-change-recipe="' + item.place + '">更换本台配方</button>' +
       otherMode + '<details class="recipe-details"><summary>查看利润依据</summary><div class="detail-list">' + (detail || '<p>明细正在更新，稍后再看。</p>') + '</div><p class="detail-note">原生参考：' + escapeHtml(evidence) + '。情景配对样本：' + item.scenarioSampleCount + '条；' + (item.provisional ? '情景数据待更新。' : '情景为本网站估算，不是原生利润或保证收益。') + '</p></details>' +
       '</article>';
   }).join('');
+}
+
+function openRecipePicker(place, requestedId = null) {
+  const candidates = rankCandidates(state.data, state.settings, place);
+  if (!candidates.length) {
+    showToast('当前允许时长内没有可选配方，请先调整设置。');
+    return;
+  }
+  const current = state.data.plan.recipes.find(row => row.place === place);
+  const selectedId = Number(requestedId) || current?.id;
+  const select = document.querySelector('#recipePickerSelect');
+  select.innerHTML = candidates.map(item => '<option value="' + item.id + '"' + (item.id === selectedId ? ' selected' : '') + '>' +
+    escapeHtml(item.name) + ' · ' + item.hours + '小时 · 周保守' + moneyWan(item.selectionWeeklyProfit) + '</option>').join('');
+  if (![...select.options].some(option => option.selected)) select.selectedIndex = 0;
+  const label = state.data.defaults?.placeRules?.[place]?.label ?? place;
+  setText('#recipePickerTitle', '更换' + label + '配方');
+  document.querySelector('#recipePickerError').hidden = true;
+  state.recipePicker = { place, candidates, record: null, result: null };
+  updateRecipePickerPreview();
+  const dialog = document.querySelector('#recipePicker');
+  if (!dialog.open) dialog.showModal();
+  select.focus();
+}
+
+function updateRecipePickerPreview() {
+  const picker = state.recipePicker;
+  if (!picker) return;
+  const id = Number(document.querySelector('#recipePickerSelect').value);
+  const candidate = picker.candidates.find(row => row.id === id);
+  const preview = document.querySelector('#recipePickerPreview');
+  const error = document.querySelector('#recipePickerError');
+  try {
+    const record = adoptRecipe(state.adoption, state.proposal, picker.place, candidate);
+    const result = calculatePlan(state.data, state.settings, record);
+    picker.record = record; picker.result = result;
+    const factor = state.settings.accounts - state.settings.sharedAccounts + state.settings.sharedAccounts * state.settings.userShare / 100;
+    const oldWeekly = numberOrNull(state.data.plan?.profit?.conservativeWeeklyPerAccount);
+    const newWeekly = numberOrNull(result.plan?.profit?.conservativeWeeklyPerAccount);
+    const delta = oldWeekly == null || newWeekly == null ? null : (newWeekly - oldWeekly) * factor;
+    const oldMaterials = new Set((state.data.buyPlan?.materials ?? []).filter(row => !row.watchOnly).map(row => row.name));
+    const newMaterials = new Set((result.buyPlan?.materials ?? []).filter(row => !row.watchOnly).map(row => row.name));
+    const added = [...newMaterials].filter(name => !oldMaterials.has(name));
+    const removed = [...oldMaterials].filter(name => !newMaterials.has(name));
+    preview.innerHTML = '<div class="recipe-picker__selected"><span>选择后本台制造</span><strong>' + escapeHtml(candidate.name) + '</strong><small>' + candidate.hours + '小时/轮 · 每周按' + candidate.runsPerWeek + '轮计算</small></div>' +
+      '<div class="recipe-picker__metrics"><div><span>单号周保守</span><strong>' + moneyWan(candidate.selectionWeeklyProfit) + '</strong></div><div><span>全部账号到手变化</span><strong class="' + (delta != null && delta < 0 ? 'is-down' : '') + '">' + (delta == null ? '待更新' : (delta >= 0 ? '+' : '') + moneyWan(delta)) + '</strong></div></div>' +
+      '<p>' + (delta == null ? '情景数据齐全后才能显示人民币变化。' : '折合每周约 ' + (delta >= 0 ? '+' : '') + nf.format(delta / (state.settings.rate * 10_000)) + ' 元。') + '</p>' +
+      '<p>新增材料：' + escapeHtml(added.join('、') || '无') + '；不再需要：' + escapeHtml(removed.join('、') || '无') + '。确认后会重新计算相同材料的数量。</p>';
+    error.hidden = true;
+    document.querySelector('#confirmRecipePicker').disabled = false;
+  } catch (failure) {
+    picker.record = null; picker.result = null;
+    preview.innerHTML = '';
+    error.textContent = failure.message; error.hidden = false;
+    document.querySelector('#confirmRecipePicker').disabled = true;
+  }
+}
+
+function closeRecipePicker() {
+  const dialog = document.querySelector('#recipePicker');
+  if (dialog.open) dialog.close();
+  state.recipePicker = null;
 }
 
 function detailRow(label, rawValue) {
@@ -393,6 +457,26 @@ function bindActions() {
       showToast('已采用，利润和采购清单已切换；收菜时间未改变');
     } catch (error) { showToast(error.message); }
   });
+  document.querySelector('#recipeList').addEventListener('click', event => {
+    const button = event.target.closest('[data-change-recipe]');
+    if (button) openRecipePicker(button.dataset.changeRecipe, button.dataset.recipeId);
+  });
+  document.querySelector('#recipePickerSelect').addEventListener('change', updateRecipePickerPreview);
+  document.querySelector('#closeRecipePicker').addEventListener('click', closeRecipePicker);
+  document.querySelector('#cancelRecipePicker').addEventListener('click', closeRecipePicker);
+  document.querySelector('#recipePicker').addEventListener('cancel', event => { event.preventDefault(); closeRecipePicker(); });
+  document.querySelector('#recipePickerForm').addEventListener('submit', event => {
+    event.preventDefault();
+    const record = state.recipePicker?.record;
+    if (!record) return;
+    try {
+      localStorage.setItem(ADOPTION_KEY, JSON.stringify(record));
+      state.adoption = record;
+      closeRecipePicker();
+      renderAll();
+      showToast('本台配方已更换，利润和买料清单已重新计算');
+    } catch (error) { showToast('保存失败：' + error.message); }
+  });
   document.querySelector('#scenarioDays').addEventListener('change', event => {
     if (!state.data) return;
     try {
@@ -401,7 +485,10 @@ function bindActions() {
       state.settings = next; renderAll();
     } catch (error) { event.target.value = state.settings.scenarioDays; showToast('保存失败：' + error.message); }
   });
-  document.querySelector('#settingsForm').addEventListener('input', () => setText('#settingsStatus', '有尚未保存的修改，点击“保存并立即重算”后生效。'));
+  document.querySelector('#settingsForm').addEventListener('input', event => {
+    if (event.target.id === 'shortWeeklyRuns') updateShortRunsHint(event.target.value);
+    setText('#settingsStatus', '有尚未保存的修改，点击“保存并立即重算”后生效。');
+  });
   window.addEventListener('popstate', () => openView(new URLSearchParams(location.search).get('view') || 'home', { updateUrl: false }));
   document.querySelector('#settingsForm').addEventListener('invalid', event => {
     event.target.closest('details')?.setAttribute('open', '');
@@ -473,6 +560,7 @@ function resetSettingsGroup(group) {
   const draft = readSettingsForm(false);
   if (group === 'basic') Object.assign(state.settings, { accounts: fresh.accounts, sharedAccounts: fresh.sharedAccounts,
     userShare: fresh.userShare, rate: fresh.rate, budgetWan: fresh.budgetWan });
+  if (group === 'short') state.settings.shortWeeklyRuns = fresh.shortWeeklyRuns;
   if (group === 'stations') for (const place of ['workbench', 'pharmacy', 'armory']) state.settings.stations[place] = fresh.stations[place];
   if (group === 'tech') {
     state.settings.techMode = fresh.techMode;
@@ -483,6 +571,7 @@ function resetSettingsGroup(group) {
   localStorage.setItem('shoucai.settings', JSON.stringify(state.settings));
   const saved = state.settings;
   if (group === 'basic') for (const key of ['accounts', 'sharedAccounts', 'userShare', 'rate', 'budgetWan']) draft[key] = saved[key];
+  if (group === 'short') draft.shortWeeklyRuns = saved.shortWeeklyRuns;
   if (group === 'stations') for (const place of ['workbench', 'pharmacy', 'armory']) draft.stations[place] = saved.stations[place];
   if (group === 'tech') { draft.techMode = saved.techMode; draft.stations.tech = saved.stations.tech; }
   if (group === 'profit') for (const key of ['conservativePercentile', 'highPercentile', 'historyDays']) draft[key] = saved[key];
@@ -494,6 +583,7 @@ function resetSettingsGroup(group) {
 function readSettingsForm(validate = true) {
   const next = structuredClone(state.settings);
   const fields = { accounts: 'accounts', sharedAccounts: 'sharedAccounts', userShare: 'userShare', rate: 'rate', budgetWan: 'budget',
+    shortWeeklyRuns: 'shortWeeklyRuns',
     conservativePercentile: 'conservativePercentile', highPercentile: 'highPercentile', historyDays: 'historyDays',
     buy7: 'buy7', buy14: 'buy14', buy30: 'buy30', stableShare: 'stableShare', stableSpread: 'stableSpread' };
   for (const [key, id] of Object.entries(fields)) next[key] = Number(document.getElementById(id).value);
@@ -503,7 +593,6 @@ function readSettingsForm(validate = true) {
     setting.allowedHours = [...group.querySelectorAll('[data-hour]:checked')].map(input => Number(input.value));
     setting.preferred = group.querySelector('[data-preferred]').value;
     setting.threshold = Number(group.querySelector('[data-threshold]').value);
-    setting.weeklyRuns = Number(group.querySelector('[data-runs]').value);
   });
   next.stations.tech.threshold = Number(document.querySelector('#techThreshold').value);
   document.querySelectorAll('[data-tech-mode]').forEach(group => {
@@ -518,7 +607,11 @@ function readSettingsForm(validate = true) {
     for (const [place, rule] of Object.entries(next.stations)) {
       const hours = place === 'tech' ? rule[`${next.techMode}Hours`] : rule.allowedHours;
       if (!hours.length) throw new Error(`${state.data.defaults.placeRules[place].label}至少选择一种制造时长。`);
-      if (place !== 'tech' && rule.weeklyRuns > Math.min(...hours.map(hour => 168 / hour))) throw new Error(`${state.data.defaults.placeRules[place].label}的周轮数超过所选时长的最高产能，请降低轮数或取消较长时长。`);
+    }
+    const shortHours = [...document.querySelectorAll('#settingsForm [data-hour]:checked')]
+      .map(input => Number(input.value)).filter(hour => hour > 0 && hour <= 8);
+    if (shortHours.length && next.shortWeeklyRuns > Math.min(...shortHours.map(hour => 168 / hour))) {
+      throw new Error('短时统一轮数超过所选制造时长的最高产能，请降低轮数或取消较长时长。');
     }
   }
   return next;
@@ -530,6 +623,8 @@ function showSettings() {
   setValue('#userShare', state.settings.userShare);
   setValue('#rate', state.settings.rate);
   setValue('#budget', state.settings.budgetWan);
+  setValue('#shortWeeklyRuns', state.settings.shortWeeklyRuns);
+  updateShortRunsHint(state.settings.shortWeeklyRuns);
   setValue('#techMode', state.settings.techMode);
   setValue('#techThreshold', state.settings.stations.tech.threshold);
   setValue('#conservativePercentile', state.settings.conservativePercentile); setValue('#highPercentile', state.settings.highPercentile);
@@ -547,16 +642,29 @@ function buildStationSettings() {
     return '<fieldset class="station-rule" data-station="' + place + '"><legend>' + escapeHtml(rule.label || place) + '</legend>' +
       '<div class="hour-checks">' + hours.map(hour => '<label><input data-hour type="checkbox" value="' + hour + '"' + (setting.allowedHours.includes(hour) ? ' checked' : '') + '>' + hour + '小时</label>').join('') + '</div>' +
       '<label>常用配方<select data-preferred>' + options + '</select></label><label>换配方门槛<div class="input-suffix"><input data-threshold type="number" min="0" max="100" step="0.5" value="' + setting.threshold + '"><span>%</span></div></label>' +
-      (place === 'tech' ? '' : '<label>每周实际轮数<input data-runs type="number" min="0.5" max="100" step="0.5" value="' + setting.weeklyRuns + '"></label>') + '</fieldset>';
+      '<small>8小时以内配方统一使用“短时制造节奏”的周轮数。</small></fieldset>';
   }).join('');
   const rule = state.settings.stations.tech;
   const pool = state.data.candidatePools.tech || [];
   document.querySelector('#techSettings').innerHTML = ['long', 'short'].map(mode => {
     const hours = mode === 'long' ? [16, 24] : [...new Set(pool.filter(item => item.category !== 'gun' && item.hours >= 4 && item.hours <= 8).map(item => item.hours))].sort((a,b) => a-b);
     const choices = pool.filter(item => hours.includes(item.hours) && (mode === 'long' ? item.category === 'gun' : item.category !== 'gun'));
-    return '<fieldset class="station-rule" data-tech-mode="' + mode + '"><legend>' + (mode === 'long' ? '长时枪械' : '短时配件') + '</legend><div class="hour-checks">' + hours.map(hour => '<label><input type="checkbox" data-hour value="' + hour + '"' + (rule[mode + 'Hours'].includes(hour) ? ' checked' : '') + '>' + hour + '小时</label>').join('') + '</div><label>常用配方<select data-preferred><option value="">自动选择，不保留常用配方</option>' + choices.map(item => '<option value="' + escapeHtml(item.name) + '"' + (normalizeText(rule[mode + 'Preferred']) === normalizeText(item.name) ? ' selected' : '') + '>' + escapeHtml(item.name) + '（' + item.hours + '小时）</option>').join('') + '</select></label>' + hours.map(hour => '<label>' + hour + '小时每周实际收取轮数<input data-tech-runs="' + hour + '" type="number" min="0.5" step="0.5" max="' + Math.floor(168 / hour * 2) / 2 + '" value="' + (rule.runsByHours[hour] ?? 17.5) + '" required></label>').join('') + '</fieldset>';
+    const runs = mode === 'long'
+      ? hours.map(hour => '<label>' + hour + '小时每周实际收取轮数<input data-tech-runs="' + hour + '" type="number" min="0.5" step="0.5" max="' + Math.floor(168 / hour * 2) / 2 + '" value="' + (rule.runsByHours[hour] ?? 168 / hour) + '" required></label>').join('')
+      : '<small data-short-runs-copy>所选4–8小时配方统一按每周' + state.settings.shortWeeklyRuns + '轮计算。</small>';
+    return '<fieldset class="station-rule" data-tech-mode="' + mode + '"><legend>' + (mode === 'long' ? '长时枪械' : '短时配件') + '</legend><div class="hour-checks">' + hours.map(hour => '<label><input type="checkbox" data-hour value="' + hour + '"' + (rule[mode + 'Hours'].includes(hour) ? ' checked' : '') + '>' + hour + '小时</label>').join('') + '</div><label>常用配方<select data-preferred><option value="">自动选择，不保留常用配方</option>' + choices.map(item => '<option value="' + escapeHtml(item.name) + '"' + (normalizeText(rule[mode + 'Preferred']) === normalizeText(item.name) ? ' selected' : '') + '>' + escapeHtml(item.name) + '（' + item.hours + '小时）</option>').join('') + '</select></label>' + runs + '</fieldset>';
   }).join('');
   document.querySelectorAll('#settingsForm input[type="number"]').forEach(input => { input.required = true; });
+}
+
+function updateShortRunsHint(rawValue) {
+  const runs = Number(rawValue);
+  setText('#shortRunsHint', Number.isFinite(runs)
+    ? `统一用于所有8小时以内配方；相当于日均 ${(runs / 7).toFixed(2)} 轮。16/24小时枪械仍单独计算。`
+    : '统一用于工作台、制药台、防具台和技术中心短时配件。');
+  document.querySelectorAll('[data-short-runs-copy]').forEach(node => {
+    node.textContent = Number.isFinite(runs) ? `所选4–8小时配方统一按每周${runs}轮计算。` : '短时配件使用统一轮数。';
+  });
 }
 
 async function undoHarvest() {
