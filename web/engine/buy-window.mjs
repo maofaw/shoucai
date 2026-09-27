@@ -407,6 +407,30 @@ function profileMaterial(material, rows, now, totalExpectedCost7Days, options = 
   return { material, values, weeklyCostShare, priceSpread, ignored };
 }
 
+export function buildMaterialPriceProfile({
+  name,
+  currentPrice,
+  history = [],
+  now = new Date(),
+  minimumSamples = 336,
+  stableSpread = 0.08,
+  pricePercentiles = { days7: 0.30, days14: 0.15, days30: 0.05 }
+} = {}) {
+  const material = {
+    key: normalizeName(name), name, currentPrice: Number(currentPrice), watchOnly: false,
+    expectedPerAccount7Days: 1, perAccount7Days: 1, perAccount14Days: 2, perAccount30Days: 5,
+    recipes: [], acquisitionNote: null, exchangeFor: null
+  };
+  const profile = profileMaterial(material, history, new Date(now), null, {
+    minimumSamples, maxWeeklyCostShare: 0, maxPriceSpread: stableSpread
+  });
+  const advice = materialAdvice(profile, pricePercentiles);
+  const volatile = profile.values.length >= minimumSamples
+    && profile.priceSpread != null && profile.priceSpread > stableSpread;
+  return { ...advice, key: material.key, ignored: !volatile, volatile,
+    sampleCount: profile.values.length, priceSpreadPercent: profile.priceSpread == null ? null : profile.priceSpread * 100 };
+}
+
 function materialAdvice(profile, pricePercentiles) {
   const { material, values, weeklyCostShare, priceSpread, ignored } = profile;
   const sufficientlyPriced = values.length >= 72;

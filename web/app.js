@@ -1,13 +1,16 @@
 import { materialCostForDays, suggestedDaysForBudget } from './budget.js';
-import { migrateSettings, calculatePlan, rankCandidates, sortMaterials as orderMaterials, normalize as normalizeText, ADOPTION_KEY, validAdoption, adoptProposal, adoptRecipe } from './planner.js';
+import { migrateSettings, calculatePlan, rankCandidates, sortMaterials as orderMaterials, normalize as normalizeText,
+  ADOPTION_KEY, STOCK_KEY, validAdoption, validStockedMaterials, saveStockedMaterial, removeStockedMaterial,
+  adoptProposal, adoptRecipe, adoptPlanSummary } from './planner.js';
 import { recordHarvest, revertHarvest, pendingUndo, serialQueue } from './harvest.js';
 import { createMarketRefresher, MARKET_CHECK_MS } from './market-refresh.js';
 
 const state = {
   data: null,
-  settings: loadJson('shoucai.settings', {}),
+  settings: loadJson('shoucai.settings', null),
   selectedDays: 'auto',
   adoption: validAdoption(loadJson(ADOPTION_KEY, null)),
+  stocked: validStockedMaterials(loadJson(STOCK_KEY, null)),
   proposal: null,
   refresher: null,
   admin: location.hash.startsWith('#manage='),
@@ -15,7 +18,10 @@ const state = {
   apiBase: String(window.SHOUCAI_CONFIG?.apiBase ?? '').replace(/\/$/, ''),
   countdownTimer: null,
   undoTimer: null,
-  recipePicker: null
+  recipePicker: null,
+  planPreview: null,
+  stockEditor: null,
+  showAllOpportunities: false
 };
 const queueRemote = serialQueue();
 
@@ -50,7 +56,7 @@ async function init() {
   }, onData: data => {
     const first = !state.data;
     const settings = first ? migrateSettings(state.settings, data.defaults || {}) : state.settings;
-    const result = calculatePlan(data, settings, state.adoption);
+    const result = calculatePlan(data, settings, state.adoption, state.stocked);
     state.data = data;
     if (first) {
       state.settings = settings;
@@ -77,7 +83,10 @@ function renderAll(result = null) {
   renderRecipes();
   renderBuyShortcut();
   renderProfit();
+  renderPlanComparisons();
   renderBuys();
+  renderOpportunities();
+  renderStockedMaterials();
   renderSell();
   renderHarvest();
   renderProposal();
@@ -87,7 +96,7 @@ function renderAll(result = null) {
 
 function recomputeLocalPlan(result = null) {
   if (!state.data.candidatePools) return;
-  result ??= calculatePlan(state.data, state.settings, state.adoption);
+  result ??= calculatePlan(state.data, state.settings, state.adoption, state.stocked);
   state.data.plan = result.plan;
   state.data.buyPlan = result.buyPlan;
   state.data.sell = result.sell;
@@ -203,7 +212,7 @@ function updateRecipePickerPreview() {
   const error = document.querySelector('#recipePickerError');
   try {
     const record = adoptRecipe(state.adoption, state.proposal, picker.place, candidate);
-    const result = calculatePlan(state.data, state.settings, record);
+    const result = calculatePlan(state.data, state.settings, record, state.stocked);
     picker.record = record; picker.result = result;
     const factor = state.settings.accounts - state.settings.sharedAccounts + state.settings.sharedAccounts * state.settings.userShare / 100;
     const oldWeekly = numberOrNull(state.data.plan?.profit?.conservativeWeeklyPerAccount);
@@ -233,6 +242,58 @@ function closeRecipePicker() {
   state.recipePicker = null;
 }
 
+function openPlanPreview(summary, title) {
+  if (!summary?.canAdopt) return showToast('这套方案数据还不完整，暂时不能采用');
+  const labels = state.data.defaults?.placeRules ?? {};
+  const current = state.data.plan?.comparisons?.current;
+  const delta = numberOrNull(summary.conservativeWeekly) != null && numberOrNull(current?.conservativeWeekly) != null
+    ? summary.conservativeWeekly - current.conservativeWeekly : null;
+  const added = summary.materials.filter(name => !(current?.materials ?? []).some(old => normalizeText(old) === normalizeText(name)));
+  const removed = (current?.materials ?? []).filter(name => !summary.materials.some(next => normalizeText(next) === normalizeText(name)));
+  setText('#planPreviewTitle', title);
+  document.querySelector('#planPreviewBody').innerHTML = '<ul class="plan-preview-list">' + summary.recipes.map(row => '<li><strong>' + escapeHtml(labels[row.place]?.label ?? row.place) + '</strong>：' + escapeHtml(row.name) + ' · ' + row.hours + '小时</li>').join('') + '</ul>' +
+    '<div class="recipe-picker__metrics"><div><span>保守周利润</span><strong>' + profitDisplay(summary.conservativeWeekly) + '</strong></div><div><span>较高30天</span><strong>' + profitDisplay(summary.highMonthly) + '</strong></div></div>' +
+    '<p>相比当前方案，单号保守周利润 ' + (delta == null ? '待更新' : (delta >= 0 ? '+' : '') + moneyWan(delta)) + '。</p><p>新增材料：' + escapeHtml(added.join('、') || '无') + '；不再需要：' + escapeHtml(removed.join('、') || '无') + '。</p>';
+  state.planPreview = summary;
+  document.querySelector('#planPreviewDialog').showModal();
+}
+
+function closePlanPreview() {
+  const dialog = document.querySelector('#planPreviewDialog');
+  if (dialog.open) dialog.close();
+  state.planPreview = null;
+}
+
+function openStockDialog(name, price, days) {
+  const existing = state.stocked.items.find(row => normalizeText(row.name) === normalizeText(name));
+  setText('#stockDialogTitle', existing ? '修改已囤材料' : '记录已囤材料');
+  setValue('#stockMaterialName', name);
+  setValue('#stockUnitPrice', existing?.unitPrice ?? price ?? '');
+  setValue('#stockCoverageDays', existing?.coverageDays ?? days ?? state.settings.scenarioDays);
+  document.querySelector('#stockError').hidden = true;
+  state.stockEditor = { name };
+  updateStockPreview();
+  document.querySelector('#stockDialog').showModal();
+}
+
+function updateStockPreview() {
+  const name = document.querySelector('#stockMaterialName').value;
+  const days = Number(document.querySelector('#stockCoverageDays').value);
+  const price = Number(document.querySelector('#stockUnitPrice').value);
+  const opportunity = (state.data.plan?.materialOpportunities ?? []).find(row => normalizeText(row.name) === normalizeText(name));
+  const material = (state.data.buyPlan?.materials ?? []).find(row => normalizeText(row.name) === normalizeText(name));
+  const unit = days === 30 ? 'perAccount30Days' : days === 14 ? 'perAccount14Days' : 'perAccount7Days';
+  const count = numberOrNull(opportunity?.coverageDays === days ? opportunity.requiredPerAccount : material?.[unit]);
+  const totalCount = count == null ? null : count * state.settings.accounts;
+  document.querySelector('#stockPreview').innerHTML = '<p><strong>' + escapeHtml(name) + '</strong>的建议价已预填，你可以改成真实成交价。</p><div class="recipe-picker__metrics"><div><span>单号预计数量</span><strong>' + (count == null ? '待更新' : nf.format(Math.ceil(count)) + '个') + '</strong></div><div><span>全部账号数量</span><strong>' + (state.settings.accounts > 0 && totalCount != null ? nf.format(Math.ceil(totalCount)) + '个' : '设置账号数后计算') + '</strong></div><div><span>单号预计花费</span><strong>' + (count == null || !Number.isFinite(price) ? '待更新' : moneyWan(count * price)) + '</strong></div></div><p>这里只记录成本，不会自动改制造配方，也不会自动扣减库存。</p>';
+}
+
+function closeStockDialog() {
+  const dialog = document.querySelector('#stockDialog');
+  if (dialog.open) dialog.close();
+  state.stockEditor = null;
+}
+
 function detailRow(label, rawValue) {
   const value = numberOrNull(rawValue);
   return value == null ? '' : '<div><span>' + label + '</span><strong>' + moneyWan(value) + '</strong></div>';
@@ -241,31 +302,99 @@ function detailRow(label, rawValue) {
 function renderProfit() {
   const profit = state.data.plan?.profit || {};
   const factor = state.settings.accounts - state.settings.sharedAccounts + state.settings.sharedAccounts * state.settings.userShare / 100;
+  const configured = state.settings.accounts > 0;
   const weeklyLow = numberOrNull(profit.conservativeWeeklyPerAccount ?? profit.noStockWeeklyPerAccount);
   const weeklyHigh = numberOrNull(profit.highWeeklyPerAccount);
   const monthlyLow = numberOrNull(profit.conservativeMonthlyPerAccount) ?? (weeklyLow == null ? null : weeklyLow * 30 / 7);
   const dailyLow = numberOrNull(profit.conservativeDailyPerAccount ?? profit.noStockDailyPerAccount) ?? (weeklyLow == null ? null : weeklyLow / 7);
   const dailyHigh = numberOrNull(profit.highDailyPerAccount) ?? (weeklyHigh == null ? null : weeklyHigh / 7);
-  setText('#conservativeMonthly', monthlyLow == null ? '待更新' : moneyWan(monthlyLow * factor));
-  setText('#conservativeWeekly', weeklyLow == null ? '待更新' : moneyWan(weeklyLow * factor));
-  setText('#highWeekly', weeklyHigh == null ? '待更新' : moneyWan(weeklyHigh * factor));
-  setText('#conservativeMonthlyCny', monthlyLow == null ? '人民币待更新' : '约 ' + nf.format(monthlyLow * factor / (state.settings.rate * 10_000)) + ' 元');
-  setText('#conservativeCny', weeklyLow == null ? '人民币待更新' : '约 ' + nf.format(weeklyLow * factor / (state.settings.rate * 10_000)) + ' 元');
-  setText('#highCny', weeklyHigh == null ? '人民币待更新' : '约 ' + nf.format(weeklyHigh * factor / (state.settings.rate * 10_000)) + ' 元');
-  setText('#monthlyHigh', weeklyHigh == null ? '较高情景待更新' : '30天较高：' + moneyWan(weeklyHigh / 7 * 30 * factor) + '，约 ' + nf.format(weeklyHigh / 7 * 30 * factor / (state.settings.rate * 10000)) + ' 元');
-  setText('#dailyRange', dailyLow == null ? '待更新' : moneyWan(dailyLow * factor) + (dailyHigh == null ? '' : ' ～ ' + moneyWan(dailyHigh * factor)));
+  const monthlyHigh = numberOrNull(profit.highMonthlyPerAccount) ?? (weeklyHigh == null ? null : weeklyHigh / 7 * 30);
+  const total = value => value == null ? '待更新' : configured ? moneyWan(value * factor) : '请先设置账号数';
+  const cny = value => value == null ? '人民币待更新' : configured ? '约 ' + nf.format(value * factor / (state.settings.rate * 10_000)) + ' 元' : '仍可查看单号利润';
+  setText('#conservativeMonthly', total(monthlyLow));
+  setText('#monthlyHigh', total(monthlyHigh));
+  setText('#conservativeWeekly', total(weeklyLow));
+  setText('#highWeekly', total(weeklyHigh));
+  setText('#conservativeMonthlyCny', cny(monthlyLow));
+  setText('#monthlyHighCny', cny(monthlyHigh));
+  setText('#conservativeCny', cny(weeklyLow));
+  setText('#highCny', cny(weeklyHigh));
+  setText('#dailyRange', dailyLow == null ? '待更新' : configured
+    ? moneyWan(dailyLow * factor) + (dailyHigh == null ? '' : ' ～ ' + moneyWan(dailyHigh * factor))
+    : '单号 ' + moneyWan(dailyLow) + (dailyHigh == null ? '' : ' ～ ' + moneyWan(dailyHigh)));
+  document.querySelector('#accountSetupBanner').hidden = configured;
   document.querySelector('#monthlyCard').classList.toggle('is-negative', monthlyLow != null && monthlyLow < 0);
+  document.querySelector('#monthlyHighCard').classList.toggle('is-negative', monthlyHigh != null && monthlyHigh < 0);
   document.querySelector('#profitBreakdown').innerHTML = [detailRow('单号日均保守', dailyLow), detailRow('单号周保守', weeklyLow),
-    detailRow('单号30天保守', monthlyLow), detailRow('所有账号周利润（未分成）', weeklyLow == null ? null : weeklyLow * state.settings.accounts),
-    detailRow('每周朋友分成', weeklyLow == null ? null : weeklyLow * (state.settings.accounts - factor))].join('') || '<p>情景数据待更新，不输出不完整的合计。</p>';
+    detailRow('单号30天保守', monthlyLow), configured ? detailRow('所有账号周利润（未分成）', weeklyLow == null ? null : weeklyLow * state.settings.accounts) : '',
+    configured ? detailRow('每周朋友分成', weeklyLow == null ? null : weeklyLow * (state.settings.accounts - factor)) : ''].join('') || '<p>情景数据待更新，不输出不完整的合计。</p>';
   document.querySelector('#conservativeCard').classList.toggle('is-negative', weeklyLow != null && weeklyLow < 0);
   document.querySelector('#highCard').classList.toggle('is-negative', weeklyHigh != null && weeklyHigh < 0);
   const basis = profit.basis || state.data.plan?.basis || '按当前材料价和历史周末卖价估算';
-  setText('#profitBasis', basis + '；已按 ' + state.settings.accounts + ' 个号、其中 ' + state.settings.sharedAccounts + ' 个分成号（你拿 ' + state.settings.userShare + '%）计算。');
-  const target = profit.target;
-  setText('#targetWeekly', target ? '周保守 ' + moneyWan(target.conservativeWeekly * factor) + ' ～ 较高 ' + moneyWan(target.highWeekly * factor) : '情景数据待更新');
-  setText('#targetIncrease', profit.targetIncrease == null ? '缺少配对成本或可靠买价时不估算低价收益。'
-    : '按建议低价买齐后，周保守预计增加 ' + moneyWan(profit.targetIncrease * factor) + '（约 ' + nf.format(profit.targetIncrease * factor / (state.settings.rate * 10000)) + ' 元），尚未实现。');
+  setText('#profitBasis', basis + (configured
+    ? '；已按 ' + state.settings.accounts + ' 个号、其中 ' + state.settings.sharedAccounts + ' 个分成号（你拿 ' + state.settings.userShare + '%）计算。'
+    : '；当前未设置账号数，页面保留单号参考，暂不输出总收入。'));
+}
+
+function profitDisplay(value) {
+  const amount = numberOrNull(value);
+  if (amount == null) return '数据不足';
+  if (state.settings.accounts <= 0) return '单号 ' + moneyWan(amount);
+  const factor = state.settings.accounts - state.settings.sharedAccounts + state.settings.sharedAccounts * state.settings.userShare / 100;
+  return moneyWan(amount * factor);
+}
+
+function planCard(type, title, badge, summary, note, adoptable) {
+  const labels = state.data.defaults?.placeRules ?? {};
+  if (!summary?.recipes?.length) return '<article class="plan-option"><div class="plan-option__head"><h3>' + title + '</h3><span>数据不足</span></div><p class="plan-option__note">配方历史或材料价格不完整，暂不输出这套方案。</p></article>';
+  const recipes = summary.recipes.map(row => '<li><strong>' + escapeHtml(labels[row.place]?.label ?? row.place) + '</strong>：' + escapeHtml(row.name) + ' · ' + row.hours + '小时</li>').join('');
+  return '<article class="plan-option ' + (type === 'current' ? 'is-current' : type === 'lowBest' ? 'is-low' : '') + '">' +
+    '<div class="plan-option__head"><h3>' + escapeHtml(title) + '</h3><span>' + escapeHtml(badge) + '</span></div>' +
+    '<ul class="plan-option__recipes">' + recipes + '</ul><div class="plan-option__metrics">' +
+    '<div><span>周保守</span><strong>' + profitDisplay(summary.conservativeWeekly) + '</strong></div><div><span>周较高</span><strong>' + profitDisplay(summary.highWeekly) + '</strong></div>' +
+    '<div><span>30天保守</span><strong>' + profitDisplay(summary.conservativeMonthly) + '</strong></div><div><span>30天较高</span><strong>' + profitDisplay(summary.highMonthly) + '</strong></div></div>' +
+    '<p class="plan-option__note">' + escapeHtml(note) + '</p>' + (adoptable && summary.canAdopt ? '<button class="secondary-button" type="button" data-preview-plan="' + type + '">预览并采用</button>' : '') + '</article>';
+}
+
+function renderPlanComparisons() {
+  const comparisons = state.data.plan?.comparisons ?? {};
+  document.querySelector('#planComparisonList').innerHTML = [
+    planCard('current', '当前采用方案', state.data.plan.preview ? '待首次确认' : '实际执行', comparisons.current,
+      state.stocked.items.length ? '已使用本机记录的真实囤货价，未囤材料按现价。' : '尚未记录囤货，材料按当前市场价计算。', false),
+    planCard('currentBest', '现价买料最优', '全部现买', comparisons.currentBest,
+      '重新比较全部允许配方，所有材料按当前市场价。', true),
+    planCard('lowBest', '低价囤料最优', '假设低价', comparisons.lowBest,
+      `高波动材料假设达到${state.settings.scenarioDays}天建议价；没有确认囤货前不计入当前收入。`, true)
+  ].join('');
+}
+
+function renderOpportunities() {
+  const rows = state.data.plan?.materialOpportunities ?? [];
+  const visible = state.showAllOpportunities ? rows : rows.slice(0, 5);
+  const factor = state.settings.accounts - state.settings.sharedAccounts + state.settings.sharedAccounts * state.settings.userShare / 100;
+  const list = document.querySelector('#opportunityList');
+  if (!rows.length) {
+    list.innerHTML = '<div class="empty-state">暂时没有同时满足“至少14天历史、价格波动超过稳定线、方案利润数据完整”的材料。</div>';
+  } else list.innerHTML = visible.map((item, index) => {
+    const totalCount = state.settings.accounts > 0 ? nf.format(Math.ceil(item.requiredPerAccount * state.settings.accounts)) + '个' : '设置账号数后计算';
+    const totalCost = state.settings.accounts > 0 ? moneyWan(item.estimatedCostPerAccount * state.settings.accounts) : '设置账号数后计算';
+    return '<article class="opportunity-card"><div class="opportunity-card__head"><div><h3>' + (index + 1) + '. ' + escapeHtml(item.name) + '</h3><p class="opportunity-card__price">现价 ' + nf.format(item.currentPrice) + ' → 建议不高于 <b>' + nf.format(item.targetPrice) + '</b></p></div><span>波动 ' + numberOrNull(item.priceSpreadPercent)?.toFixed(1) + '%</span></div>' +
+      '<div class="opportunity-card__metrics"><div><span>单号买' + item.coverageDays + '天</span><strong>' + nf.format(Math.ceil(item.requiredPerAccount)) + '个</strong></div><div><span>全部账号数量</span><strong>' + totalCount + '</strong></div>' +
+      '<div><span>全部预计花费</span><strong>' + totalCost + '</strong></div><div><span>保守周利润</span><strong>' + profitDisplay(item.plan.conservativeWeekly) + '</strong></div>' +
+      '<div><span>保守30天</span><strong>' + profitDisplay(item.plan.conservativeMonthly) + '</strong></div><div><span>较高30天</span><strong>' + profitDisplay(item.plan.highMonthly) + '</strong></div></div>' +
+      '<p class="opportunity-card__note">用于方案：' + escapeHtml(item.recipes.join('、')) + '。相比全部现价买料，单号保守周利润 ' + (item.improvementWeekly >= 0 ? '+' : '') + moneyWan(item.improvementWeekly) + '。</p>' +
+      '<button class="secondary-button" type="button" data-preview-opportunity="' + escapeHtml(item.key) + '">预览这套方案</button><button class="material-stock-button" type="button" data-stock-material="' + escapeHtml(item.name) + '" data-stock-price="' + item.targetPrice + '" data-stock-days="' + item.coverageDays + '">已囤到货</button></article>';
+  }).join('');
+  const toggle = document.querySelector('#toggleOpportunities');
+  toggle.hidden = rows.length <= 5;
+  toggle.textContent = state.showAllOpportunities ? '收起，只看前5名' : '查看全部' + rows.length + '种材料';
+}
+
+function renderStockedMaterials() {
+  const section = document.querySelector('#stockedSection');
+  const items = state.data.plan?.stockedMaterials ?? [];
+  section.hidden = !items.length;
+  document.querySelector('#stockedList').innerHTML = items.map(item => '<article class="stocked-card"><div class="stocked-card__head"><div><strong>' + escapeHtml(item.name) + '</strong><small>实际买入 ' + nf.format(item.unitPrice) + '／个 · 预计够' + item.coverageDays + '天</small></div></div><div class="stocked-card__actions"><button class="secondary-button" type="button" data-stock-material="' + escapeHtml(item.name) + '" data-stock-price="' + item.unitPrice + '" data-stock-days="' + item.coverageDays + '">修改</button><button class="secondary-button is-danger" type="button" data-remove-stock="' + escapeHtml(item.name) + '">删除</button></div></article>').join('');
 }
 
 function renderBuyShortcut() {
@@ -363,12 +492,15 @@ function renderMaterials(plan, days, suggested) {
     const price = numberOrNull(material.currentPrice);
     const target = numberOrNull(material.tierThresholds?.['days' + days] ?? material.targetPrice);
     const buy = material.action === 'buy';
+    const stocked = state.stocked.items.find(row => normalizeText(row.name) === normalizeText(material.name));
+    const totalCount = count == null ? '--' : state.settings.accounts > 0 ? nf.format(Math.ceil(count * state.settings.accounts)) + '个' : '设置账号数后计算';
     return '<article class="material-card' + (material.watchOnly ? ' material-card--watch' : '') + '">' +
       '<div class="material-head"><strong>' + escapeHtml(material.name || '未知材料') + '</strong><span class="material-action ' + (buy ? 'is-buy' : '') + '">' + (buy ? '已到' + material.tierDays + '天好价' : material.action === 'wait' ? '再等等' : '暂无信号') + '</span></div>' +
       '<p class="material-reason">' + escapeHtml(material.reason || '按本周制造方案计算') + '</p>' +
       (buy && days > material.tierDays ? '<p class="material-reason">目前仅达到' + material.tierDays + '天好价；下方' + days + '天数量仅作备料参考，不建议一次买足。</p>' : '') +
       (material.exchangeFor ? '<p class="exchange-tag">用于兑换 ' + escapeHtml(material.exchangeFor) + '</p>' : material.acquisitionNote ? '<p class="acquisition-note">' + escapeHtml(material.acquisitionNote) + '</p>' : '') +
-      '<div class="material-metrics"><div><span>当前单价</span><strong>' + (price == null ? '--' : nf.format(price)) + '</strong></div><div><span>建议最高买价</span><strong>' + (target == null ? '--' : nf.format(target)) + '</strong></div><div><span>单号' + (material.watchOnly ? '备料' : '买') + days + '天</span><strong>' + (count == null ? '--' : nf.format(count) + '个') + '</strong></div><div><span>单号预计花费</span><strong>' + (price == null || count == null ? '--' : moneyWan(price * count)) + '</strong></div></div><p class="material-recipes">用于：' + escapeHtml((material.recipes || []).join('、') || '当前制造方案') + '</p>' +
+      '<div class="material-metrics"><div><span>当前单价</span><strong>' + (price == null ? '--' : nf.format(price)) + '</strong></div><div><span>建议最高买价</span><strong>' + (target == null ? '--' : nf.format(target)) + '</strong></div><div><span>单号' + (material.watchOnly ? '备料' : '买') + days + '天</span><strong>' + (count == null ? '--' : nf.format(count) + '个') + '</strong></div><div><span>全部账号数量</span><strong>' + totalCount + '</strong></div><div><span>单号预计花费</span><strong>' + (price == null || count == null ? '--' : moneyWan(price * count)) + '</strong></div></div><p class="material-recipes">用于：' + escapeHtml((material.recipes || []).join('、') || '当前制造方案') + '</p>' +
+      (target == null ? '' : '<button class="material-stock-button" type="button" data-stock-material="' + escapeHtml(material.name) + '" data-stock-price="' + (stocked?.unitPrice ?? target) + '" data-stock-days="' + (stocked?.coverageDays ?? days) + '">' + (stocked ? '修改已囤价格' : '已囤到货') + '</button>') +
       '</article>';
   };
   const cards = materials.map(materialCard).join('');
@@ -449,6 +581,11 @@ function openView(target, { updateUrl = true, focus = true } = {}) {
 
 function bindActions() {
   document.querySelector('#refreshMarket').addEventListener('click', () => state.refresher?.check(true));
+  document.querySelector('#openAccountSettings').addEventListener('click', () => {
+    openView('settings');
+    document.querySelector('#accounts').closest('details')?.setAttribute('open', '');
+    document.querySelector('#accounts').focus();
+  });
   document.querySelector('#adoptPlan').addEventListener('click', () => {
     try {
       const record = adoptProposal(state.proposal);
@@ -476,6 +613,64 @@ function bindActions() {
       renderAll();
       showToast('本台配方已更换，利润和买料清单已重新计算');
     } catch (error) { showToast('保存失败：' + error.message); }
+  });
+  document.querySelector('#planComparisonList').addEventListener('click', event => {
+    const button = event.target.closest('[data-preview-plan]');
+    if (!button) return;
+    const summary = state.data.plan?.comparisons?.[button.dataset.previewPlan];
+    openPlanPreview(summary, button.dataset.previewPlan === 'lowBest' ? '低价囤料最优方案' : '现价买料最优方案');
+  });
+  document.querySelector('#opportunityList').addEventListener('click', event => {
+    const preview = event.target.closest('[data-preview-opportunity]');
+    if (preview) {
+      const item = (state.data.plan?.materialOpportunities ?? []).find(row => row.key === preview.dataset.previewOpportunity);
+      if (item) openPlanPreview(item.plan, '囤“' + item.name + '”后的最佳方案');
+      return;
+    }
+    const stock = event.target.closest('[data-stock-material]');
+    if (stock) openStockDialog(stock.dataset.stockMaterial, Number(stock.dataset.stockPrice), Number(stock.dataset.stockDays));
+  });
+  document.querySelector('#buyList').addEventListener('click', event => {
+    const stock = event.target.closest('[data-stock-material]');
+    if (stock) openStockDialog(stock.dataset.stockMaterial, Number(stock.dataset.stockPrice), Number(stock.dataset.stockDays));
+  });
+  document.querySelector('#stockedList').addEventListener('click', event => {
+    const edit = event.target.closest('[data-stock-material]');
+    if (edit) return openStockDialog(edit.dataset.stockMaterial, Number(edit.dataset.stockPrice), Number(edit.dataset.stockDays));
+    const remove = event.target.closest('[data-remove-stock]');
+    if (!remove || !confirm('删除“' + remove.dataset.removeStock + '”的囤货记录吗？利润会恢复按现价计算。')) return;
+    state.stocked = removeStockedMaterial(state.stocked, remove.dataset.removeStock);
+    localStorage.setItem(STOCK_KEY, JSON.stringify(state.stocked));
+    renderAll(); showToast('已删除囤货记录，利润已按现价重算');
+  });
+  document.querySelector('#toggleOpportunities').addEventListener('click', () => { state.showAllOpportunities = !state.showAllOpportunities; renderOpportunities(); });
+  document.querySelector('#closePlanPreview').addEventListener('click', closePlanPreview);
+  document.querySelector('#cancelPlanPreview').addEventListener('click', closePlanPreview);
+  document.querySelector('#planPreviewDialog').addEventListener('cancel', event => { event.preventDefault(); closePlanPreview(); });
+  document.querySelector('#planPreviewForm').addEventListener('submit', event => {
+    event.preventDefault();
+    try {
+      const record = adoptPlanSummary(state.planPreview);
+      localStorage.setItem(ADOPTION_KEY, JSON.stringify(record));
+      state.adoption = record; closePlanPreview(); renderAll();
+      showToast('已采用整套方案，利润和采购清单已重新计算');
+    } catch (error) { showToast(error.message); }
+  });
+  document.querySelector('#closeStockDialog').addEventListener('click', closeStockDialog);
+  document.querySelector('#cancelStockDialog').addEventListener('click', closeStockDialog);
+  document.querySelector('#stockDialog').addEventListener('cancel', event => { event.preventDefault(); closeStockDialog(); });
+  document.querySelector('#stockUnitPrice').addEventListener('input', updateStockPreview);
+  document.querySelector('#stockCoverageDays').addEventListener('change', updateStockPreview);
+  document.querySelector('#stockForm').addEventListener('submit', event => {
+    event.preventDefault();
+    const error = document.querySelector('#stockError');
+    try {
+      state.stocked = saveStockedMaterial(state.stocked, { name: document.querySelector('#stockMaterialName').value,
+        unitPrice: Number(document.querySelector('#stockUnitPrice').value), coverageDays: Number(document.querySelector('#stockCoverageDays').value) });
+      localStorage.setItem(STOCK_KEY, JSON.stringify(state.stocked));
+      error.hidden = true; closeStockDialog(); renderAll();
+      showToast('已记录真实囤货价，当前方案利润已重新计算');
+    } catch (failure) { error.textContent = failure.message; error.hidden = false; }
   });
   document.querySelector('#scenarioDays').addEventListener('change', event => {
     if (!state.data) return;
@@ -545,7 +740,10 @@ function bindActions() {
     if (!confirm('确定恢复全部默认设置吗？账号、分成和制造规则都会恢复。')) return;
     localStorage.removeItem('shoucai.settings'); location.reload();
   });
-  document.querySelectorAll('[data-reset-group]').forEach(button => button.addEventListener('click', () => resetSettingsGroup(button.dataset.resetGroup)));
+  document.querySelectorAll('[data-reset-group]').forEach(button => button.addEventListener('click', () => {
+    if (button.dataset.resetGroup === 'basic' && !confirm('确定把账号、分成和本人比例恢复为通用默认值0／0／100%吗？')) return;
+    resetSettingsGroup(button.dataset.resetGroup);
+  }));
   document.querySelector('#finishSell').addEventListener('click', async event => {
     const at = new Date().toISOString();
     localStorage.setItem('shoucai.lastSellFinishedAt', at);
@@ -556,7 +754,7 @@ function bindActions() {
 
 function resetSettingsGroup(group) {
   const defaults = state.data.defaults || {};
-  const fresh = migrateSettings({}, defaults);
+  const fresh = migrateSettings(null, defaults);
   const draft = readSettingsForm(false);
   if (group === 'basic') Object.assign(state.settings, { accounts: fresh.accounts, sharedAccounts: fresh.sharedAccounts,
     userShare: fresh.userShare, rate: fresh.rate, budgetWan: fresh.budgetWan });
@@ -602,6 +800,8 @@ function readSettingsForm(validate = true) {
     group.querySelectorAll('[data-tech-runs]').forEach(input => { next.stations.tech.runsByHours[input.dataset.techRuns] = Number(input.value); });
   });
   if (validate) {
+    if (!Number.isInteger(next.accounts) || next.accounts < 0 || next.accounts > 999) throw new Error('账号总数需填写0到999之间的整数。');
+    if (!Number.isInteger(next.sharedAccounts) || next.sharedAccounts < 0) throw new Error('分成号数量需填写非负整数。');
     if (next.sharedAccounts > next.accounts) throw new Error('分成号不能多于总账号数。');
     if (next.buy30 > next.buy14 || next.buy14 > next.buy7) throw new Error('囤货越久，买价要越低：30天分位 ≤ 14天分位 ≤ 7天分位。');
     for (const [place, rule] of Object.entries(next.stations)) {

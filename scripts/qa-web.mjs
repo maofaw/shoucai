@@ -18,6 +18,10 @@ try {
   const view = async name => { await page.locator(`[data-target="${name}"]`).click(); };
   await page.goto('http://127.0.0.1:4175'); await ready();
   assert.equal(await page.locator('.recipe-card').count(), 4);
+  assert.equal(await page.locator('.profit-card').count(), 4);
+  assert.equal(await page.locator('.plan-option').count(), 3);
+  assert.equal(await page.locator('#accountSetupBanner').isVisible(), true);
+  assert.match(await page.locator('#conservativeMonthly').textContent(), /请先设置账号数/);
   await page.screenshot({ path: 'reports/qa-home.png', fullPage: true });
   await page.evaluate(() => localStorage.setItem('shoucai.lastHarvestFinishedAt', '2026-09-01T00:00:00.000Z'));
   await page.locator('#finishHarvest').click(); await page.locator('#finishHarvest').click();
@@ -37,7 +41,7 @@ try {
   assert.match(await page.locator('#settingsError').textContent(), /不能为空/);
   await page.locator('#conservativePercentile').fill('25');
   await page.locator('#techMode').selectOption('short');
-  await page.locator('[data-station=workbench] [data-runs]').fill('14');
+  await page.locator('#shortWeeklyRuns').fill('14');
   await page.locator('#historyDays').selectOption('1');
   await page.locator('#settingsForm button[type=submit]').click();
   assert.match(await page.locator('#settingsStatus').textContent(), /已保存/);
@@ -62,6 +66,9 @@ try {
   assert.match(await page.locator('#activePlanLabel').textContent(),/待确认/);
   await page.locator('#adoptPlan').click();
   assert.match(await page.locator('#activePlanLabel').textContent(),/已采用/);
+  await page.locator('[data-preview-plan=currentBest]').click();
+  assert.equal(await page.locator('#planPreviewDialog').isVisible(), true);
+  await page.locator('#cancelPlanPreview').click();
   const adopted = await page.evaluate(()=>localStorage.getItem('shoucai.adoptedPlan'));
   const harvest = await page.evaluate(()=>localStorage.getItem('shoucai.lastHarvestFinishedAt'));
   const recipeNames = await page.locator('.recipe-main').allTextContents();
@@ -96,6 +103,18 @@ try {
   assert.equal(await page.locator('#accounts').inputValue(),'33');
   await view('home');
   await page.screenshot({path:'reports/qa-home-adopted.png',fullPage:true,animations:'disabled'});
+  await view('buy');
+  const stockButton = page.locator('#opportunityList [data-stock-material]').first();
+  if (await stockButton.count()) {
+    await stockButton.click();
+    assert.equal(await page.locator('#stockDialog').isVisible(), true);
+    await page.locator('#stockUnitPrice').fill('12345');
+    await page.locator('#stockForm button[type=submit]').click();
+    assert.equal(await page.locator('#stockedSection').isVisible(), true);
+    assert.match(await page.evaluate(()=>localStorage.getItem('shoucai.stockedMaterials')),/12345/);
+    page.once('dialog', dialog => dialog.accept());
+    await page.locator('[data-remove-stock]').first().click();
+  }
   for (const size of [{ width: 375, height: 812 }, { width: 812, height: 375 }, { width: 1440, height: 900 }]) {
     await page.setViewportSize(size);
     for (const name of ['home', 'buy', 'sell', 'settings']) {

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { migrateSettings, calculatePlan, rankCandidates, chooseCandidate, sortMaterials, adoptProposal, adoptRecipe } from '../web/planner.js';
+import { migrateSettings, calculatePlan, rankCandidates, chooseCandidate, sortMaterials, adoptProposal, adoptRecipe,
+  validStockedMaterials, saveStockedMaterial, removeStockedMaterial } from '../web/planner.js';
 
 const defaults = { accounts: 28, sharedAccounts: 10, ownerSharePercent: 80, haffPerCnyWan: 52, placeRules: {
   workbench: { label: '工作台', allowedHours: [8], weeklyRuns: 17.5 },
@@ -19,8 +20,17 @@ test('migration preserves accounts, zero owner share, mode-specific rules and ex
   assert.equal(settings.accounts, 32); assert.equal(settings.sharedAccounts, 12); assert.equal(settings.userShare, 0);
   assert.equal(settings.stations.workbench.preferred, ''); assert.equal(settings.stations.tech.runsByHours[8], 12);
   assert.equal(settings.stations.tech.runsByHours[6], 17.5); assert.equal(settings.stations.tech.shortPreferred, '配件');
-  assert.equal(settings.shortWeeklyRuns, 12); assert.equal(settings.version, 6);
-  assert.equal(migrateSettings(null, defaults).accounts, 28);
+  assert.equal(settings.shortWeeklyRuns, 12); assert.equal(settings.version, 7);
+  const fresh = migrateSettings(null, defaults);
+  assert.equal(fresh.accounts, 0); assert.equal(fresh.sharedAccounts, 0); assert.equal(fresh.userShare, 100);
+});
+
+test('stock records validate, update and remove without changing other settings', () => {
+  let record = saveStockedMaterial(null, { name: '特种钢', unitPrice: 12345, coverageDays: 14 }, new Date('2026-09-27T00:00:00Z'));
+  assert.deepEqual(validStockedMaterials(record).items.map(row => [row.name,row.unitPrice,row.coverageDays]), [['特种钢',12345,14]]);
+  record = saveStockedMaterial(record, { name: ' 特种钢 ', unitPrice: 12000, coverageDays: 30 });
+  assert.equal(record.items.length, 1); assert.equal(record.items[0].unitPrice, 12000);
+  assert.deepEqual(removeStockedMaterial(record, '特种钢').items, []);
 });
 
 test('all 4–8 hour accessories compete at actual frequency; mode and allowed hours are respected', () => {

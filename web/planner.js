@@ -1,10 +1,11 @@
-import { buildWeeklyBuyAdvice } from './engine/buy-window.mjs';
+import { buildWeeklyBuyAdvice, buildMaterialPriceProfile } from './engine/buy-window.mjs';
 import { buildPortfolioSaleTiming } from './engine/weekend-prices.mjs';
-import { profitScenario, totalScenarios } from './scenarios.js';
+import { procurement, profitScenario, totalScenarios } from './scenarios.js';
 
 export const PLACES = ['workbench', 'tech', 'pharmacy', 'armory'];
 export const normalize = value => String(value ?? '').toLowerCase().replace(/[\s·×*（）()]/g, '');
 export const finite = value => value == null || value === '' || !Number.isFinite(Number(value)) ? null : Number(value);
+const materialProfileCache = new WeakMap();
 const bounded = (value, fallback, min, max) => finite(value) == null ? fallback : Math.min(max, Math.max(min, Number(value)));
 export function quantile(values, probability) {
   const sorted = values.map(finite).filter(value => value != null).sort((a, b) => a - b);
@@ -13,8 +14,9 @@ export function quantile(values, probability) {
   return sorted[Math.floor(index)] + (sorted[Math.ceil(index)] - sorted[Math.floor(index)]) * (index % 1);
 }
 
-export function migrateSettings(saved = {}, defaults = {}) {
-  if (!saved || typeof saved !== 'object' || Array.isArray(saved)) saved = {};
+export function migrateSettings(saved = null, defaults = {}) {
+  const hasSavedSettings = Boolean(saved && typeof saved === 'object' && !Array.isArray(saved));
+  if (!hasSavedSettings) saved = {};
   const legacyShortRuns = [
     saved.shortWeeklyRuns,
     saved.stations?.workbench?.weeklyRuns,
@@ -42,14 +44,14 @@ export function migrateSettings(saved = {}, defaults = {}) {
       shortPreferred: old.shortPreferred ?? ''
     };
   }
-  const accounts = Math.floor(bounded(saved.accounts, defaults.accounts ?? 28, 1, 999));
+  const accounts = Math.floor(bounded(saved.accounts, hasSavedSettings ? defaults.accounts ?? 0 : 0, 0, 999));
   const buy7 = bounded(saved.buy7, 30, 1, 50);
   const buy14 = bounded(saved.buy14, 15, 1, buy7);
   return {
-    version: 6, accounts, sharedAccounts: Math.floor(bounded(saved.sharedAccounts, defaults.sharedAccounts ?? 10, 0, accounts)),
+    version: 7, accounts, sharedAccounts: Math.floor(bounded(saved.sharedAccounts, hasSavedSettings ? defaults.sharedAccounts ?? 0 : 0, 0, accounts)),
     shortWeeklyRuns: bounded(legacyShortRuns, defaults.shortWeeklyRuns ?? 17.5, 0.5, 42),
     scenarioDays: [7,14,30].includes(Number(saved.scenarioDays)) ? Number(saved.scenarioDays) : 7,
-    userShare: bounded(saved.userShare, defaults.ownerSharePercent ?? 80, 0, 100),
+    userShare: bounded(saved.userShare, hasSavedSettings ? defaults.ownerSharePercent ?? 100 : 100, 0, 100),
     rate: bounded(saved.rate, defaults.haffPerCnyWan ?? 52, 1, 1_000_000),
     budgetWan: bounded(saved.budgetWan, (defaults.buyBudgetPerAccount ?? 10_000_000) / 10_000, 0, 1_000_000_000),
     stations, techMode: saved.techMode === 'short' ? 'short' : 'long',
@@ -110,6 +112,32 @@ export function chooseCandidate(candidates, threshold, activeId = null) {
 }
 
 export const ADOPTION_KEY = 'shoucai.adoptedPlan';
+export const STOCK_KEY = 'shoucai.stockedMaterials';
+export function validStockedMaterials(record) {
+  if (record?.version !== 1 || !Array.isArray(record.items)) return { version: 1, items: [] };
+  const items = record.items.filter(row => normalize(row?.name) && finite(row?.unitPrice) != null && Number(row.unitPrice) >= 0
+    && [7, 14, 30].includes(Number(row.coverageDays)))
+    .map(row => ({ name: String(row.name).trim(), key: normalize(row.name), unitPrice: Number(row.unitPrice),
+      coverageDays: Number(row.coverageDays), confirmedAt: Number.isFinite(Date.parse(row.confirmedAt)) ? row.confirmedAt : new Date(0).toISOString() }));
+  return { version: 1, items: [...new Map(items.map(row => [row.key, row])).values()] };
+}
+
+export function saveStockedMaterial(record, material, now = new Date()) {
+  const current = validStockedMaterials(record);
+  if (!normalize(material?.name) || !(finite(material?.unitPrice) >= 0) || ![7,14,30].includes(Number(material?.coverageDays))) {
+    throw new Error('请填写有效的材料价格，并选择7、14或30天。');
+  }
+  const item = { name: String(material.name).trim(), key: normalize(material.name), unitPrice: Number(material.unitPrice),
+    coverageDays: Number(material.coverageDays), confirmedAt: now.toISOString() };
+  return { version: 1, items: [...current.items.filter(row => row.key !== item.key), item] };
+}
+
+export function removeStockedMaterial(record, name) {
+  const current = validStockedMaterials(record);
+  const id = normalize(name);
+  return { version: 1, items: current.items.filter(row => row.key !== id) };
+}
+
 export function validAdoption(record) {
   if (record?.version !== 1 || !Number.isFinite(Date.parse(record.adoptedAt)) || !Array.isArray(record.recipes) || record.recipes.length !== 4) return null;
   if (!PLACES.every(place => record.recipes.filter(row=>row.place===place && Number.isInteger(row.id) && row.id>0).length === 1)) return null;
@@ -156,12 +184,132 @@ function recipeCard(main, backup, place, label, reason, other = null) {
     otherMode: other ? {mode:other.mode,name:other.name,hours:other.hours,weeklyProfit:other.scenario?.conservativeWeekly ?? null} : null };
 }
 
-export function calculatePlan(data, settings, savedAdoption = null) {
+function allowedPools(data, settings) {
+  return Object.fromEntries(PLACES.map(place => [place, rankCandidates(data, settings, place)]));
+}
+
+function materialCatalog(pools, data, settings) {
+  const materials = new Map();
+  for (const candidate of Object.values(pools).flat()) {
+    const purchase = procurement(candidate, settings.scenarioDays ?? 7);
+    for (const row of purchase?.materials ?? []) {
+      const id = normalize(row.name);
+      if (!id || !Number.isFinite(row.price)) continue;
+      const old = materials.get(id) ?? { key: id, name: row.name, currentPrice: row.price, recipes: new Set() };
+      old.currentPrice = row.price;
+      old.recipes.add(candidate.name);
+      materials.set(id, old);
+    }
+  }
+  const histories = new Map(Object.entries(data.materialHistories ?? {}).map(([name, rows]) => [normalize(name), rows]));
+  const cacheKey = [data.builtAt ?? data.generatedAt, settings.stableSpread, settings.buy7, settings.buy14, settings.buy30].join('|');
+  let dataCache = materialProfileCache.get(data);
+  if (!dataCache) { dataCache = new Map(); materialProfileCache.set(data, dataCache); }
+  let profiles = dataCache.get(cacheKey);
+  if (!profiles) {
+    profiles = new Map([...materials.values()].map(row => [row.key, buildMaterialPriceProfile({
+      name: row.name, currentPrice: row.currentPrice, history: histories.get(row.key) ?? [],
+      now: new Date(data.builtAt ?? data.generatedAt), minimumSamples: 336, stableSpread: settings.stableSpread / 100,
+      pricePercentiles: { days7: settings.buy7 / 100, days14: settings.buy14 / 100, days30: settings.buy30 / 100 }
+    })]));
+    dataCache.set(cacheKey, profiles);
+  }
+  return [...materials.values()].map(row => ({ ...row, recipes: [...row.recipes], ...profiles.get(row.key) }));
+}
+
+function overrideProfiles(rows, horizonDays, coverageDays) {
+  return { fallbackToCurrent: true, rows: rows.map(row => {
+    const current = finite(row.currentPrice);
+    const target = finite(row.unitPrice ?? row.tierThresholds?.[`days${coverageDays}`]);
+    if (current == null || target == null) return { name: row.name, ignored: true };
+    const covered = Math.min(horizonDays, coverageDays);
+    return { name: row.name, unitPrice: (Math.min(current, target) * covered + current * (horizonDays - covered)) / horizonDays };
+  }) };
+}
+
+function stockedProfiles(stocked, catalog, horizonDays) {
+  const byKey = new Map(catalog.map(row => [row.key, row]));
+  return { fallbackToCurrent: true, rows: stocked.items.map(item => {
+    const market = byKey.get(item.key);
+    const current = finite(market?.currentPrice);
+    if (current == null) return { name: item.name, ignored: true };
+    const covered = Math.min(horizonDays, item.coverageDays);
+    return { name: item.name, unitPrice: (item.unitPrice * covered + current * (horizonDays - covered)) / horizonDays };
+  }) };
+}
+
+function bestPortfolio(pools, settings, profiles = null) {
+  const selected = [];
+  for (const place of PLACES) {
+    const rows = (pools[place] ?? []).map(candidate => {
+      const base = candidate.scenario ?? profitScenario(candidate, settings);
+      const purchase = profiles && base ? procurement(candidate, settings.scenarioDays ?? 7, profiles) : null;
+      const weeklyCost = purchase ? purchase.cost * 7 / (settings.scenarioDays ?? 7) : null;
+      const scenario = !profiles ? base : base && weeklyCost != null ? { ...base, purchase, weeklyCost,
+        conservativeWeekly: base.conservativeWeekly + base.weeklyCost - weeklyCost,
+        highWeekly: base.highWeekly + base.weeklyCost - weeklyCost } : null;
+      return { ...candidate, scenario, selectionWeeklyProfit: scenario?.conservativeWeekly ?? null };
+    }).filter(candidate => candidate.scenario?.conservativeWeekly > 0 && candidate.currentProfit > 0)
+      .sort((a,b) => b.selectionWeeklyProfit - a.selectionWeeklyProfit || a.id - b.id);
+    if (!rows[0]) return [];
+    selected.push(rows[0]);
+  }
+  return selected;
+}
+
+function summaryFor(candidates, settings, weeklyProfiles = null, monthlyProfiles = weeklyProfiles) {
+  const weekly = totalScenarios(candidates, settings, weeklyProfiles);
+  const monthly = totalScenarios(candidates, { ...settings, scenarioDays: 30 }, monthlyProfiles);
+  const materials = new Set();
+  for (const candidate of candidates) for (const row of procurement(candidate, settings.scenarioDays ?? 7)?.materials ?? []) materials.add(row.name);
+  return {
+    canAdopt: candidates.length === 4 && Boolean(weekly),
+    recipes: candidates.map(candidate => ({ place: candidate.place, id: candidate.id, name: candidate.name, hours: candidate.hours })),
+    conservativeWeekly: weekly?.conservativeWeekly ?? null, highWeekly: weekly?.highWeekly ?? null,
+    conservativeMonthly: monthly?.conservativeMonthly ?? null, highMonthly: monthly?.highMonthly ?? null,
+    materials: [...materials]
+  };
+}
+
+export function adoptPlanSummary(summary, now = new Date()) {
+  if (!summary?.canAdopt || summary.recipes?.length !== 4) throw new Error('这套方案数据还不完整，暂时不能采用。');
+  return { version: 1, adoptedAt: now.toISOString(), recipes: summary.recipes.map(row => ({
+    place: row.place, id: row.id, name: row.name, hours: row.hours
+  })) };
+}
+
+function buildOpportunity(profile, pools, settings, currentBest) {
+  const coverageDays = settings.scenarioDays ?? 7;
+  const target = finite(profile.tierThresholds?.[`days${coverageDays}`]);
+  if (!profile.volatile || target == null) return null;
+  const weeklyProfiles = overrideProfiles([{ ...profile, unitPrice: target }], coverageDays, coverageDays);
+  const monthlyProfiles = overrideProfiles([{ ...profile, unitPrice: target }], 30, coverageDays);
+  const candidates = bestPortfolio(pools, settings, weeklyProfiles);
+  if (candidates.length !== 4) return null;
+  let requiredPerAccount = 0;
+  const usedBy = [];
+  for (const candidate of candidates) {
+    const material = procurement(candidate, coverageDays)?.materials.find(row => normalize(row.name) === profile.key);
+    if (material) { requiredPerAccount += material.count; usedBy.push(candidate.name); }
+  }
+  if (!(requiredPerAccount > 0)) return null;
+  const summary = summaryFor(candidates, settings, weeklyProfiles, monthlyProfiles);
+  if (summary.conservativeWeekly == null) return null;
+  return { key: profile.key, name: profile.name, currentPrice: profile.currentPrice, targetPrice: Math.min(profile.currentPrice, target),
+    coverageDays, sampleCount: profile.sampleCount, priceSpreadPercent: profile.priceSpreadPercent,
+    requiredPerAccount, estimatedCostPerAccount: requiredPerAccount * Math.min(profile.currentPrice, target),
+    recipes: [...new Set(usedBy)], plan: summary,
+    improvementWeekly: currentBest.conservativeWeekly == null ? null : summary.conservativeWeekly - currentBest.conservativeWeekly };
+}
+
+export function calculatePlan(data, settings, savedAdoption = null, savedStocked = null) {
   const adoption = validAdoption(savedAdoption);
+  const stocked = validStockedMaterials(savedStocked);
+  const pools = allowedPools(data, settings);
   const recipes = [], recommendations = [], proposalRecipes = [], proposedCandidates = [], activeCandidates = [], issues = [];
   for (const place of PLACES) {
     const rule = settings.stations[place];
-    const candidates = rankCandidates(data, settings, place);
+    const candidates = pools[place];
     const adopted = adoption?.recipes.find(row=>row.place===place);
     const { main, backup } = chooseCandidate(candidates, rule.threshold, adopted?.id);
     const label = data.defaults?.placeRules?.[place]?.label ?? place;
@@ -200,20 +348,39 @@ export function calculatePlan(data, settings, savedAdoption = null) {
     materialFilter: { minimumSamples: 336, maxWeeklyCostShare: settings.stableShare / 100, maxPriceSpread: settings.stableSpread / 100 },
     pricePercentiles: { days7: settings.buy7 / 100, days14: settings.buy14 / 100, days30: settings.buy30 / 100 }
   });
-  const current = totalScenarios(activeCandidates,settings);
+  const catalog = materialCatalog(pools, data, settings);
+  const currentStockProfiles = stockedProfiles(stocked, catalog, settings.scenarioDays ?? 7);
+  const monthlyStockProfiles = stockedProfiles(stocked, catalog, 30);
+  const current = totalScenarios(activeCandidates, settings, currentStockProfiles);
+  const currentMonthly = totalScenarios(activeCandidates, { ...settings, scenarioDays: 30 }, monthlyStockProfiles);
   const target = totalScenarios(activeCandidates,settings,buyPlan.materials);
   const proposed = totalScenarios(proposedCandidates,settings);
+  const currentPlan = summaryFor(activeCandidates, settings, currentStockProfiles, monthlyStockProfiles);
+  const currentBestCandidates = bestPortfolio(pools, settings);
+  const currentBest = summaryFor(currentBestCandidates, settings);
+  const volatileProfiles = catalog.filter(row => row.volatile && finite(row.tierThresholds?.[`days${settings.scenarioDays}`]) != null);
+  const lowWeeklyProfiles = overrideProfiles(volatileProfiles.map(row => ({ ...row,
+    unitPrice: row.tierThresholds[`days${settings.scenarioDays}`] })), settings.scenarioDays, settings.scenarioDays);
+  const lowMonthlyProfiles = overrideProfiles(volatileProfiles.map(row => ({ ...row,
+    unitPrice: row.tierThresholds[`days${settings.scenarioDays}`] })), 30, settings.scenarioDays);
+  const lowCandidates = bestPortfolio(pools, settings, lowWeeklyProfiles);
+  const lowBest = summaryFor(lowCandidates, settings, lowWeeklyProfiles, lowMonthlyProfiles);
+  const materialOpportunities = volatileProfiles.map(profile => buildOpportunity(profile, pools, settings, currentBest))
+    .filter(Boolean).sort((a,b) => b.plan.conservativeWeekly - a.plan.conservativeWeekly || a.name.localeCompare(b.name, 'zh-CN'));
   const changes = proposalRecipes.filter(row => !adoption || adoption.recipes.find(old=>old.place===row.place)?.id !== row.id);
   const proposedBuy = buildWeeklyBuyAdvice({recommendations:proposedCandidates.map(row=>({place:row.place,cashSelected:row})), now:new Date(data.builtAt??data.generatedAt)});
   const materialNames = plan => plan.materials.filter(row=>!row.watchOnly).map(row=>row.name);
   const oldNames = materialNames(buyPlan), newNames = materialNames(proposedBuy);
   return { plan: { recipes, profit: {
     conservativeWeeklyPerAccount: current?.conservativeWeekly ?? null, conservativeDailyPerAccount: current?.conservativeDaily ?? null,
-    conservativeMonthlyPerAccount: current?.conservativeMonthly ?? null, highWeeklyPerAccount: current?.highWeekly ?? null,
+    conservativeMonthlyPerAccount: currentMonthly?.conservativeMonthly ?? null, highWeeklyPerAccount: current?.highWeekly ?? null,
+    highMonthlyPerAccount: currentMonthly?.highMonthly ?? null,
     highDailyPerAccount: current ? current.highWeekly/7 : null, provisional: !current,
     basis: `${adoption?'已采用方案':'待确认方案预览'} · 本网站估算：最近${settings.historyDays}天同点原生利润加回成本，再扣现价买料成本。保守${settings.conservativePercentile}%、较高${settings.highPercentile}%分位。按${settings.scenarioDays}天完整采购摊销（含取整余料），实际收益取决于成交和收菜频率。${current?'':'情景数据待更新，不以原生历史利润代替。'}`,
     target, targetIncrease: current && target ? target.conservativeWeekly-current.conservativeWeekly : null
-  }, preview: !adoption, issues, adoptedAt: adoption?.adoptedAt ?? null }, buyPlan,
+  }, preview: !adoption, issues, adoptedAt: adoption?.adoptedAt ?? null,
+    comparisons: { current: currentPlan, currentBest, lowBest }, materialOpportunities,
+    stockedMaterials: stocked.items.map(item => ({ ...item, currentPrice: catalog.find(row => row.key === item.key)?.currentPrice ?? null })) }, buyPlan,
     proposal: {recipes:proposalRecipes,changes,canAdopt:proposalRecipes.every(row=>!row.unavailable),
       needsConfirmation:!adoption || changes.length>0, weeklyProfit:proposed?.conservativeWeekly ?? null,
       weeklyDifference:proposed && current && adoption ? proposed.conservativeWeekly-current.conservativeWeekly : null,

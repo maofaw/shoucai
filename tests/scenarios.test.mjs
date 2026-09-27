@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { procurement, profitScenario, totalScenarios } from '../web/scenarios.js';
-import { calculatePlan, migrateSettings, adoptProposal, validAdoption } from '../web/planner.js';
+import { calculatePlan, migrateSettings, adoptProposal, validAdoption, saveStockedMaterial } from '../web/planner.js';
 const settings = {historyDays:15,scenarioDays:7,conservativePercentile:25,highPercentile:75};
 const rows = Array.from({length:24},(_,i)=>({time:`2026-09-19T${String(i).padStart(2,'0')}:00:00Z`,profit:100,cost:200,revenue:330}));
 const candidate = (id=1,place='workbench',extra={})=>({id,place,name:`配方${id}`,hours:8,currentProfit:100,runsPerWeek:17.5,
@@ -63,6 +63,17 @@ test('adopted A100 vs B101 stays on A at 5%, new 106 proposal cannot silently re
   assert.ok(!next.buyPlan.materials.some(row=>row.name==='材料2'&&!row.watchOnly));
   assert.deepEqual(next.proposal.addedMaterials,['材料2']);
   assert.equal(calculatePlan(d,s,adoptProposal(next.proposal)).plan.recipes[0].id,2);
+});
+test('confirmed stock price changes current profit but never silently changes adopted recipes',()=>{
+  const d=data(),s=migrateSettings({accounts:2},defaults);
+  for (const pool of Object.values(d.candidatePools)) for (const row of pool) setProfit(row,100);
+  const adopted=adoptProposal(calculatePlan(d,s).proposal);
+  const before=calculatePlan(d,s,adopted);
+  const stock=saveStockedMaterial(null,{name:'材料1',unitPrice:20,coverageDays:7});
+  const after=calculatePlan(d,s,adopted,stock);
+  assert.equal(after.plan.recipes[0].id,before.plan.recipes[0].id);
+  assert.ok(after.plan.profit.conservativeWeeklyPerAccount>before.plan.profit.conservativeWeeklyPerAccount);
+  assert.equal(after.plan.stockedMaterials[0].unitPrice,20);
 });
 test('invalidated adopted plans remain recorded and do not silently select a replacement',()=>{
   const d=data(),s=migrateSettings({},defaults),adopted=adoptProposal(calculatePlan(d,s).proposal);

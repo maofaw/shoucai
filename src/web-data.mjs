@@ -110,9 +110,9 @@ export function buildDashboardData({ snapshot, metadata, recommendations, buyPla
       recipeCount: snapshot.recipes.length
     },
     defaults: {
-      accounts: Number(config.dashboard?.defaultAccounts ?? config.accounts ?? 28),
-      sharedAccounts: Number(config.dashboard?.defaultSharedAccounts ?? 10),
-      ownerSharePercent: Number(config.dashboard?.defaultOwnerSharePercent ?? 80),
+      accounts: Number(config.dashboard?.defaultAccounts ?? 0),
+      sharedAccounts: Number(config.dashboard?.defaultSharedAccounts ?? 0),
+      ownerSharePercent: Number(config.dashboard?.defaultOwnerSharePercent ?? 100),
       buyBudgetPerAccount: Number(config.dashboard?.defaultBuyBudgetPerAccount ?? 10_000_000),
       haffPerCnyWan: Number(config.dashboard?.defaultHaffPerCnyWan ?? 52),
       nativeConservativePercentile: Number(config.dashboard?.nativeConservativePercentile ?? 0.25),

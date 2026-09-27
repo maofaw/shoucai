@@ -1,8 +1,20 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildWeeklyBuyAdvice, materialNamesForSelectedRecipes } from '../src/buy-window.mjs';
+import { buildWeeklyBuyAdvice, materialNamesForSelectedRecipes, buildMaterialPriceProfile } from '../src/buy-window.mjs';
 
 const NOW = new Date('2026-09-23T12:00:00+08:00');
+
+test('material profile keeps only sufficiently sampled high-volatility materials for stocking opportunities', () => {
+  const history = Array.from({ length: 336 }, (_, index) => {
+    const local = new Date(NOW.getTime() - index * 3_600_000 + 8 * 3_600_000);
+    return { time: `${String(local.getUTCMonth() + 1).padStart(2, '0')}-${String(local.getUTCDate()).padStart(2, '0')} ${String(local.getUTCHours()).padStart(2, '0')}:00`, avg: index % 2 ? 100 : 200 };
+  });
+  const volatile = buildMaterialPriceProfile({ name: '特种钢', currentPrice: 180, history, now: NOW, stableSpread: 0.08 });
+  const stable = buildMaterialPriceProfile({ name: '稳定材料', currentPrice: 100, history: history.map(row => ({ ...row, avg: 100 })), now: NOW, stableSpread: 0.08 });
+  assert.equal(volatile.volatile, true); assert.equal(volatile.sampleCount, 336);
+  assert.equal(stable.volatile, false); assert.equal(stable.ignored, true);
+  assert.ok(Number.isFinite(volatile.tierThresholds.days7));
+});
 
 function recommendations(aPrice = 70, bPrice = 140) {
   return [

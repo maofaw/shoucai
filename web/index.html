@@ -8,7 +8,7 @@
   <title>三角洲收菜助手</title>
   <link rel="icon" type="image/svg+xml" href="./favicon.svg">
   <link rel="manifest" href="./manifest.webmanifest">
-  <link rel="stylesheet" href="./styles.css?v=18">
+  <link rel="stylesheet" href="./styles.css?v=19">
 </head>
 <body>
   <a class="skip-link" href="#main">跳到主要内容</a>
@@ -32,15 +32,17 @@
   <main id="main" class="content" tabindex="-1">
     <section class="view is-active" data-view="home" aria-labelledby="home-title">
       <div class="section-heading"><div><p class="eyebrow" id="activePlanLabel">待确认方案预览</p><h2 id="home-title" tabindex="-1">按现价买料 · 预计利润</h2><p class="section-note">本网站估算 · 已扣分成，不代表保证到手</p></div></div>
+      <article id="accountSetupBanner" class="account-setup" hidden><div><strong>先设置账号数</strong><p>目前展示单号利润和推荐方案；设置后会计算你的总周利润、月利润和采购总量。</p></div><button id="openAccountSettings" class="primary-button" type="button">设置账号数</button></article>
       <div class="profit-grid" aria-label="按现价采购成本估算的收益">
-        <article id="monthlyCard" class="profit-card profit-card--accent profit-card--monthly"><span class="profit-card__label">月保守预计 · 30天</span><strong id="conservativeMonthly" class="profit-card__value">--</strong><p id="conservativeMonthlyCny" class="profit-card__cny">约 -- 元</p><p id="monthlyHigh" class="profit-card__high">较高情景待更新</p><small class="profit-card__hint">按日均 × 30天；历史估算不代表保证收益</small></article>
+        <article id="monthlyCard" class="profit-card profit-card--accent profit-card--monthly"><span class="profit-card__label">月保守预计 · 30天</span><strong id="conservativeMonthly" class="profit-card__value">--</strong><p id="conservativeMonthlyCny" class="profit-card__cny">约 -- 元</p><small class="profit-card__hint">按日均折算30天</small></article>
+        <article id="monthlyHighCard" class="profit-card profit-card--accent profit-card--monthly"><span class="profit-card__label">月较高预计 · 30天</span><strong id="monthlyHigh" class="profit-card__value">--</strong><p id="monthlyHighCny" class="profit-card__cny">约 -- 元</p><small class="profit-card__hint">历史较高情景，不代表保证收益</small></article>
         <article id="conservativeCard" class="profit-card profit-card--weekly"><span class="profit-card__label">一周保守</span><strong id="conservativeWeekly" class="profit-card__value">--</strong><p id="conservativeCny" class="profit-card__cny">约 -- 元</p></article>
         <article id="highCard" class="profit-card profit-card--weekly"><span class="profit-card__label">一周较高</span><strong id="highWeekly" class="profit-card__value">--</strong><p id="highCny" class="profit-card__cny">约 -- 元</p></article>
       </div>
       <p id="profitBasis" class="profit-basis">正在读取原生收益历史…</p>
       <details class="profit-details"><summary>查看单号利润和未分成总额</summary><div id="profitBreakdown" class="detail-list"></div></details>
       <div class="daily-summary"><span>日均到手</span><strong id="dailyRange">--</strong><small>按你的收菜频率折算</small></div>
-      <article class="scenario-card"><h3>若按建议低价买齐</h3><label for="scenarioDays">按多长采购期对照</label><select id="scenarioDays"><option value="7">7天</option><option value="14">14天</option><option value="30">30天</option></select><strong id="targetWeekly">情景数据待更新</strong><p id="targetIncrease"></p><p class="section-note">与上方使用同一配方和历史卖出情景，仅改变买料成本。只有买到这些价格才成立；不代表已经囤料。</p></article>
+      <section class="plan-comparison" aria-labelledby="planComparisonTitle"><div class="section-heading section-heading--sub"><div><p class="eyebrow">三套完整方案</p><h2 id="planComparisonTitle">不同买料方式怎么造</h2></div></div><label for="scenarioDays">低价方案按多长囤货期计算</label><select id="scenarioDays"><option value="7">7天</option><option value="14">14天</option><option value="30">30天</option></select><div id="planComparisonList" class="plan-comparison__list" aria-live="polite"></div></section>
       <article class="proposal-card" aria-labelledby="proposalTitle"><h3 id="proposalTitle">先确认下一轮造什么</h3><div id="proposalDetails"></div><button id="adoptPlan" class="primary-button" type="button" disabled>采用这套方案</button><small>只记录本设备采用的配方，不记录库存，也不代表完成收菜。</small></article>
       <article class="harvest-card">
         <div class="card-icon"><svg class="icon"><use href="#i-clock"/></svg></div>
@@ -62,6 +64,8 @@
       <details class="profit-details"><summary>关于低价通知</summary><p class="section-note">通知仍可能按后台默认方案发送，不会跟随本机自定义配方、账号数和轮数。请以本页采用方案的清单为准。</p></details>
       <article id="buyTiming" class="timing-card" aria-live="polite"><strong>正在分析买料时段…</strong></article>
       <article id="buyNow" class="buy-now-card" aria-live="polite"><strong>正在检查当前价格…</strong></article>
+      <section class="opportunity-section" aria-labelledby="opportunityTitle"><div class="section-heading section-heading--sub"><div><p class="eyebrow">按最终利润排序</p><h2 id="opportunityTitle">屯什么材料最赚钱</h2></div></div><p class="section-note">每次只假设一种高波动材料达到建议价，其余材料按现价，并重新选择四台最佳配方。</p><div id="opportunityList" class="opportunity-list" aria-live="polite"></div><button id="toggleOpportunities" class="secondary-button" type="button" hidden>查看全部</button></section>
+      <section id="stockedSection" class="stocked-section" aria-labelledby="stockedTitle" hidden><div class="section-heading section-heading--sub"><div><p class="eyebrow">仅保存在本设备</p><h2 id="stockedTitle">已囤材料</h2></div></div><div id="stockedList" class="stocked-list"></div></section>
       <div class="section-heading section-heading--sub"><div><p class="eyebrow">单号采购清单</p><h2>各材料买多少</h2></div></div>
       <div class="days-select" role="group" aria-label="购买天数">
         <button class="days-option is-active" type="button" data-days="auto" aria-pressed="true">自动建议</button>
@@ -89,7 +93,7 @@
       <form id="settingsForm" class="settings-card settings-card--grouped">
         <p id="settingsStatus" class="settings-status" role="status">修改后点击底部“保存并立即重算”。设置只保存在当前设备。</p>
         <details open><summary>基础计算</summary><div class="settings-group">
-          <label for="accounts">一共多少个号</label><input id="accounts" name="accounts" type="number" inputmode="numeric" min="1" max="999" step="1" required>
+          <label for="accounts">一共多少个号</label><input id="accounts" name="accounts" type="number" inputmode="numeric" min="0" max="999" step="1" required><small>刚开始使用可以填0，仍能查看单号利润和推荐。</small>
           <label for="sharedAccounts">其中有多少个号需要分成</label><input id="sharedAccounts" name="sharedAccounts" type="number" inputmode="numeric" min="0" max="999" step="1" required>
           <label for="userShare">分成号你拿多少</label><div class="input-suffix"><input id="userShare" name="userShare" type="number" inputmode="decimal" min="0" max="100" step="0.1" required><span>%</span></div>
           <label for="rate">变现比例</label><div class="input-suffix"><input id="rate" name="rate" type="number" inputmode="decimal" min="1" step="0.1" required><span>万哈夫币 / 1元</span></div>
@@ -141,6 +145,8 @@
       <div class="recipe-picker__actions"><button id="confirmRecipePicker" class="primary-button" type="submit">确认更换本台</button><button id="cancelRecipePicker" class="secondary-button" type="button">取消</button></div>
     </form>
   </dialog>
+  <dialog id="planPreviewDialog" class="recipe-picker" aria-labelledby="planPreviewTitle"><form id="planPreviewForm" method="dialog"><div class="recipe-picker__head"><div><p class="eyebrow">确认后才会换产</p><h2 id="planPreviewTitle">预览整套方案</h2></div><button id="closePlanPreview" class="dialog-close" type="button" aria-label="关闭方案预览">×</button></div><div id="planPreviewBody" class="recipe-picker__preview"></div><div class="recipe-picker__actions"><button class="primary-button" type="submit">确认采用这套方案</button><button id="cancelPlanPreview" class="secondary-button" type="button">取消</button></div></form></dialog>
+  <dialog id="stockDialog" class="recipe-picker" aria-labelledby="stockDialogTitle"><form id="stockForm" method="dialog"><div class="recipe-picker__head"><div><p class="eyebrow">真实囤货成本</p><h2 id="stockDialogTitle">记录已囤材料</h2></div><button id="closeStockDialog" class="dialog-close" type="button" aria-label="关闭囤货记录">×</button></div><input id="stockMaterialName" type="hidden"><label for="stockUnitPrice">实际买入单价</label><input id="stockUnitPrice" type="number" inputmode="numeric" min="0" step="1" required><label for="stockCoverageDays">大约够用多久</label><select id="stockCoverageDays"><option value="7">7天</option><option value="14">14天</option><option value="30">30天</option></select><div id="stockPreview" class="recipe-picker__preview"></div><p id="stockError" class="form-error" role="alert" hidden></p><div class="recipe-picker__actions"><button class="primary-button" type="submit">确认已囤到货</button><button id="cancelStockDialog" class="secondary-button" type="button">取消</button></div></form></dialog>
   <nav class="bottom-nav" aria-label="主要导航">
     <button class="nav-item is-active" type="button" data-target="home" aria-controls="main" aria-current="page"><svg class="icon"><use href="#i-home"/></svg><span>首页</span></button>
     <button class="nav-item" type="button" data-target="buy" aria-controls="main"><svg class="icon"><use href="#i-box"/></svg><span>买料</span></button>
@@ -149,6 +155,6 @@
   </nav>
   <div id="toast" class="toast" role="status" aria-live="polite" hidden><span id="toastMessage"></span><button id="toastAction" type="button" hidden>撤销</button></div>
   <script src="./runtime-config.js"></script>
-  <script type="module" src="./app.js?v=18"></script>
+  <script type="module" src="./app.js?v=19"></script>
 </body>
 </html>

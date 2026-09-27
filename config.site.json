@@ -12,9 +12,9 @@
   "dashboard": {
     "title": "三角洲收菜助手",
     "staleAfterHours": 4,
-    "defaultAccounts": 28,
-    "defaultSharedAccounts": 10,
-    "defaultOwnerSharePercent": 80,
+    "defaultAccounts": 0,
+    "defaultSharedAccounts": 0,
+    "defaultOwnerSharePercent": 100,
     "defaultBuyBudgetPerAccount": 10000000,
     "defaultHaffPerCnyWan": 52,
     "weekendLookbackWeeks": 4,

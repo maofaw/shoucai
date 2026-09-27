@@ -27,14 +27,18 @@ export function procurement(candidate, days = 7, profiles = null) {
       }
     } else add(material.name, material.count * runs, material.currentPrice);
   }
-  const profileMap = new Map((profiles ?? []).map(row=>[key(row.name), row]));
+  const profileRows = Array.isArray(profiles) ? profiles : profiles?.rows ?? [];
+  const fallbackToCurrent = !Array.isArray(profiles) && profiles?.fallbackToCurrent === true;
+  const profileMap = new Map(profileRows.map(row=>[key(row.name), row]));
   let cost = 0;
   for (const row of demand.values()) {
     let price = row.price;
     if (profiles) {
       const profile = profileMap.get(key(row.name));
-      if (!profile) return null;
-      if (!profile.ignored) {
+      if (!profile && !fallbackToCurrent) return null;
+      if (profile?.unitPrice != null) {
+        price = numeric(profile.unitPrice);
+      } else if (profile && !profile.ignored) {
         const target = numeric(profile.tierThresholds?.[`days${days}`]);
         if (target == null || price == null) return null;
         price = Math.min(price, target); // Never assume buying above an already lower current price.
@@ -63,6 +67,9 @@ export function totalScenarios(candidates, settings, profiles = null) {
   const rows = candidates.map(candidate => profitScenario(candidate, settings, profiles));
   if (candidates.length !== 4 || rows.some(row=>!row)) return null;
   const conservativeWeekly = rows.reduce((sum,row)=>sum+row.conservativeWeekly,0);
-  return { conservativeWeekly, highWeekly: rows.reduce((sum,row)=>sum+row.highWeekly,0),
-    conservativeDaily: conservativeWeekly/7, conservativeMonthly: conservativeWeekly/7*30 };
+  const highWeekly = rows.reduce((sum,row)=>sum+row.highWeekly,0);
+  return { conservativeWeekly, highWeekly,
+    conservativeDaily: conservativeWeekly/7, highDaily: highWeekly/7,
+    conservativeMonthly: conservativeWeekly/7*30, highMonthly: highWeekly/7*30,
+    weeklyCost: rows.reduce((sum,row)=>sum+row.weeklyCost,0), rows };
 }
