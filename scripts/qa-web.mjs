@@ -14,7 +14,7 @@ fs.mkdirSync('reports', { recursive: true });
 try {
   const context = await browser.newContext({ viewport: { width: 375, height: 812 }, serviceWorkers: 'block', reducedMotion: 'reduce' });
   const page = await context.newPage();
-  page.on('pageerror', error => errors.push(error.message));
+  page.on('pageerror', error => { errors.push(error.message); console.error('[pageerror]', error.message); });
   const ready = async () => { await page.waitForFunction(() => document.querySelector('#profitLow').textContent !== '--'); };
   const view = async name => { await page.locator(`[data-target="${name}"]`).click(); };
   await page.goto('http://127.0.0.1:4175'); await ready();
@@ -39,6 +39,15 @@ try {
   const cachedReloadStarted = Date.now();
   await page.reload(); await ready();
   assert.ok(Date.now() - cachedReloadStarted < 5000, 'persisted market data should render before the network retry');
+  await page.waitForFunction(() => !document.querySelector('[data-profit-period="day"]').disabled).catch(async error => {
+    console.error('[warm-cache-debug]', await page.evaluate(() => ({
+      status: document.querySelector('#marketStatus')?.textContent,
+      freshness: document.querySelector('#freshness')?.textContent,
+      disabled: document.querySelector('[data-profit-period="day"]')?.disabled,
+      toast: document.querySelector('#toastMessage')?.textContent
+    })));
+    throw error;
+  });
   await page.unroute('**/data/version.json?*');
   await page.unroute('**/data/latest.json.gz?*');
   await page.unroute('**/data/latest.json?*');

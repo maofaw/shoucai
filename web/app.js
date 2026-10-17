@@ -32,6 +32,7 @@ const state = {
 };
 const queueRemote = serialQueue();
 let renderRevision = 0;
+const WARM_HOME_KEY = 'shoucai.warmHome';
 
 const nf = new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 0 });
 const VALID_VIEWS = new Set(['home', 'plans', 'buy', 'sell', 'settings']);
@@ -53,8 +54,12 @@ async function init() {
   bindNavigation();
   bindActions();
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
+  const warmHomeRestored = restoreWarmHome();
+  if (warmHomeRestored) {
+    setWarmControlsDisabled(true);
+  }
   await loadRemoteState();
-  setText('#marketStatus', '正在读取本机行情缓存…');
+  if (!warmHomeRestored) setText('#marketStatus', '正在读取本机行情缓存…');
   const cached = await readPersistedMarketSnapshot();
   const applyData = data => {
     const first = !state.data;
@@ -67,6 +72,7 @@ async function init() {
       document.querySelector('#scenarioDays').value = state.settings.scenarioDays;
     }
     renderAll(result);
+    setWarmControlsDisabled(false);
   };
   if (isUsableMarketSnapshot(cached?.data)) applyData(cached.data);
   state.refresher = createMarketRefresher({ load: async () => {
@@ -109,7 +115,90 @@ function renderAll(result = null) {
   if (state.data.source?.url?.startsWith('https://moligod.com/')) document.querySelector('#sourceLink').href = state.data.source.url;
   const activeView = document.querySelector('.view.is-active')?.dataset.view ?? 'home';
   renderViewDetails(activeView);
+  persistWarmHome();
   scheduleDeferredViews();
+}
+
+function warmHomeSignature() {
+  return [
+    localStorage.getItem('shoucai.settings') ?? '',
+    localStorage.getItem(ADOPTION_KEY) ?? '',
+    localStorage.getItem(STOCK_KEY) ?? '',
+    localStorage.getItem('shoucai.lazyMode') ?? '',
+    localStorage.getItem('shoucai.uiPreferences') ?? ''
+  ].join('\n');
+}
+
+function persistWarmHome() {
+  if (!state.data) return;
+  try {
+    const text = selector => document.querySelector(selector)?.textContent ?? '';
+    const html = selector => document.querySelector(selector)?.innerHTML ?? '';
+    const className = selector => document.querySelector(selector)?.className ?? '';
+    const hidden = selector => Boolean(document.querySelector(selector)?.hidden);
+    localStorage.setItem(WARM_HOME_KEY, JSON.stringify({
+      version: 1,
+      signature: warmHomeSignature(),
+      savedAt: Date.now(),
+      generatedAt: state.data.generatedAt,
+      texts: Object.fromEntries([
+        '#activePlanLabel', '#recipes-title', '#homeModeNote', '#profitLowLabel', '#profitLow', '#profitLowCny',
+        '#profitLowHint', '#profitHighLabel', '#profitHigh', '#profitHighCny', '#profitHighHint', '#profitBasis',
+        '#buyShortcutTitle', '#buyShortcutDetail', '#nextHarvest', '#harvestCountdown', '#lastHarvest'
+      ].map(selector => [selector, text(selector)])),
+      html: {
+        '#profitBreakdown': html('#profitBreakdown'),
+        '#compactRecipeList': html('#compactRecipeList'),
+        '#lazyMaterialSummary': html('#lazyMaterialSummary'),
+        '#lazySwitchCard': html('#lazySwitchCard')
+      },
+      classes: {
+        '#profitLowCard': className('#profitLowCard'),
+        '#profitHighCard': className('#profitHighCard')
+      },
+      hidden: {
+        '#accountSetupBanner': hidden('#accountSetupBanner'),
+        '#lazyMaterialSummary': hidden('#lazyMaterialSummary'),
+        '#lazySwitchCard': hidden('#lazySwitchCard'),
+        '#lazyAdvanced': hidden('#lazyAdvanced')
+      },
+      lazyMode: state.lazy.enabled
+    }));
+  } catch {
+    // 首屏缓存只是加速层，容量不足时不影响正常行情加载。
+  }
+}
+
+function restoreWarmHome() {
+  let cached;
+  try { cached = JSON.parse(localStorage.getItem(WARM_HOME_KEY)); } catch { return false; }
+  if (cached?.version !== 1 || cached.signature !== warmHomeSignature()) return false;
+  const savedAt = Number(cached.savedAt);
+  if (!Number.isFinite(savedAt) || Date.now() - savedAt > 48 * 3_600_000) return false;
+  try {
+    for (const [selector, value] of Object.entries(cached.texts ?? {})) setText(selector, value);
+    for (const [selector, value] of Object.entries(cached.html ?? {})) document.querySelector(selector).innerHTML = value;
+    for (const [selector, value] of Object.entries(cached.classes ?? {})) document.querySelector(selector).className = value;
+    for (const [selector, value] of Object.entries(cached.hidden ?? {})) document.querySelector(selector).hidden = value;
+    document.body.classList.toggle('is-lazy-mode', cached.lazyMode === true);
+    document.querySelector('#lazyModeToggle').checked = cached.lazyMode === true;
+    const ageMs = Date.now() - Date.parse(cached.generatedAt);
+    const stale = !Number.isFinite(ageMs) || ageMs > 4 * 3_600_000;
+    const pill = document.querySelector('#freshness');
+    pill.textContent = stale ? '上次结果已过期' : '上次结果 · ' + relativeAge(ageMs);
+    pill.classList.toggle('is-fresh', false);
+    pill.classList.toggle('is-stale', stale);
+    document.querySelector('#staleBanner').hidden = !stale;
+    setText('#marketStatus', '已先显示上次结果，正在后台更新行情与利润');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function setWarmControlsDisabled(disabled) {
+  document.querySelector('#lazyModeToggle').disabled = disabled;
+  document.querySelectorAll('[data-profit-period]').forEach(button => { button.disabled = disabled; });
 }
 
 function renderViewDetails(target) {

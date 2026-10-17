@@ -1,7 +1,7 @@
-const CACHE = 'shoucai-v24';
+const CACHE = 'shoucai-v25';
 const DATA_GZIP = './data/latest.json.gz';
 const DATA_JSON = './data/latest.json';
-const SHELL = ['./', './index.html', './styles.css?v=23', './app.js?v=24', './planner.js', './scenarios.js', './snapshot-loader.js', './snapshot-cache.js', './market-refresh.js', './harvest.js', './engine/buy-window.mjs', './engine/market-history.mjs', './engine/recommend.mjs', './engine/weekend-prices.mjs', './budget.js', './manifest.webmanifest', './runtime-config.js', './favicon.svg', './data/version.json'];
+const SHELL = ['./', './index.html', './styles.css?v=23', './app.js?v=25', './planner.js', './scenarios.js', './snapshot-loader.js', './snapshot-cache.js', './market-refresh.js', './harvest.js', './engine/buy-window.mjs', './engine/market-history.mjs', './engine/recommend.mjs', './engine/weekend-prices.mjs', './budget.js', './manifest.webmanifest', './runtime-config.js', './favicon.svg', './data/version.json'];
 
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(SHELL)).then(() => self.skipWaiting()));
