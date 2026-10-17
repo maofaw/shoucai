@@ -6,6 +6,7 @@ import { recordHarvest, revertHarvest, pendingUndo, serialQueue } from './harves
 import { createMarketRefresher, MARKET_CHECK_MS } from './market-refresh.js';
 import { procurement } from './scenarios.js';
 import { loadMarketSnapshot } from './snapshot-loader.js';
+import { isUsableMarketSnapshot, persistMarketSnapshot, readPersistedMarketSnapshot } from './snapshot-cache.js';
 
 const state = {
   data: null,
@@ -50,7 +51,23 @@ init().catch(error => {
 async function init() {
   bindNavigation();
   bindActions();
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
   await loadRemoteState();
+  setText('#marketStatus', '正在读取本机行情缓存…');
+  const cached = await readPersistedMarketSnapshot();
+  const applyData = data => {
+    const first = !state.data;
+    const settings = first ? migrateSettings(state.settings, data.defaults || {}) : state.settings;
+    const result = calculatePlan(data, settings, state.adoption, state.lazy.enabled ? { version: 1, items: [] } : state.stocked);
+    state.data = data;
+    if (first) {
+      state.settings = settings;
+      buildStationSettings(); showSettings();
+      document.querySelector('#scenarioDays').value = state.settings.scenarioDays;
+    }
+    renderAll(result);
+  };
+  if (isUsableMarketSnapshot(cached?.data)) applyData(cached.data);
   state.refresher = createMarketRefresher({ load: async () => {
     if (state.data) {
       try {
@@ -63,18 +80,11 @@ async function init() {
     }
     return loadMarketSnapshot({ signal: AbortSignal.timeout(20_000) });
   }, onData: data => {
-    const first = !state.data;
-    const settings = first ? migrateSettings(state.settings, data.defaults || {}) : state.settings;
-    const result = calculatePlan(data, settings, state.adoption, state.lazy.enabled ? { version: 1, items: [] } : state.stocked);
-    state.data = data;
-    if (first) {
-      state.settings = settings;
-      buildStationSettings(); showSettings();
-      document.querySelector('#scenarioDays').value = state.settings.scenarioDays;
-    }
-    renderAll(result);
-  }, onStatus: renderRefreshStatus });
-  await state.refresher.check(true);
+    applyData(data);
+    void persistMarketSnapshot(data);
+  }, onStatus: renderRefreshStatus, initialData: state.data });
+  const firstNetworkCheck = state.refresher.check(true);
+  if (!state.data) await firstNetworkCheck;
   document.querySelector('#finishSell').hidden = !state.admin;
   restoreUndoNotice();
   setInterval(() => { if (state.data) renderFreshness(); }, 60_000);
@@ -83,7 +93,6 @@ async function init() {
   window.addEventListener('online', () => state.refresher.check(true));
   const initialView = new URLSearchParams(location.search).get('view');
   if (VALID_VIEWS.has(initialView) && initialView !== 'home') openView(initialView, { updateUrl: false, focus: false });
-  if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
 }
 
 function renderAll(result = null) {
@@ -125,8 +134,10 @@ function recomputeLocalPlan(result = null) {
 function renderRefreshStatus(status) {
   document.querySelector('#refreshMarket').disabled = status.checking;
   document.querySelector('#refreshMarket').textContent = status.checking ? '正在检查…' : '刷新行情';
-  setText('#marketStatus', status.error ? `刷新失败：${status.error}。${state.data ? '已保留最后可用数据。' : '请点击刷新重试。'}`
-    : status.checking ? '正在检查网站行情，不额外采集 Moligod' : '最后成功检查：' + formatDateTime(status.lastSuccess));
+  const offlineMessage = status.error && state.data && navigator.onLine === false;
+  setText('#marketStatus', offlineMessage ? '当前使用离线缓存，联网后会自动更新。'
+    : status.error ? `刷新失败：${status.error}。${state.data ? '已保留最后可用数据。' : '请点击刷新重试。'}`
+    : status.checking ? (state.data ? '已显示本机行情，正在后台检查更新' : '首次加载行情，请稍候…') : '最后成功检查：' + formatDateTime(status.lastSuccess));
   if (!state.data && status.error) {
     setText('#freshness','行情读取失败');
     document.querySelector('#recipeList').innerHTML = '<p class="empty-state">行情读取失败，可使用顶部“刷新行情”重试。</p>';

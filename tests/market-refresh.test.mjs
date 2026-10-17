@@ -32,3 +32,10 @@ test('concurrent checks have only one in-flight request',async()=>{
   const a=refresher.check(),b=refresher.check(true);
   release({data:snapshot('2026-09-27T00:00:00Z')});await Promise.all([a,b]);assert.equal(calls,1);
 });
+test('persisted initial data renders immediately and is not applied twice when the server version is unchanged',async()=>{
+  const initial=snapshot('2026-09-27T00:00:00Z');let updates=0;
+  const refresher=createMarketRefresher({initialData:initial,load:async()=>({data:structuredClone(initial)}),onData:()=>updates++});
+  await refresher.check(true);
+  assert.equal(updates,0);
+  assert.notEqual(refresher.status().lastSuccess,null);
+});

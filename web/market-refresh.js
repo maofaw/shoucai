@@ -1,9 +1,9 @@
 export const MARKET_CHECK_MS = 5 * 60_000;
 
 // Scheduling is injected by the UI; this state machine is also used in tests.
-export function createMarketRefresher({ load, onData, onStatus = () => {}, now = Date.now, interval = MARKET_CHECK_MS }) {
+export function createMarketRefresher({ load, onData, onStatus = () => {}, now = Date.now, interval = MARKET_CHECK_MS, initialData = null }) {
   const status = { lastAttempt: null, lastSuccess: null, checking: false, error: null };
-  let pending = null, data = null;
+  let pending = null, data = initialData;
   const publish = () => onStatus({ ...status });
   async function perform() {
     status.lastAttempt = now(); status.checking = true; publish();

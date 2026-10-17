@@ -22,6 +22,28 @@ try {
   assert.equal(await page.locator('.profit-card').count(), 2);
   assert.equal(await page.locator('#accountSetupBanner').isVisible(), true);
   assert.match(await page.locator('#profitLow').textContent(), /请先设置账号数/);
+  await page.waitForFunction(() => new Promise(resolve => {
+    const open = indexedDB.open('shoucai-market-cache');
+    open.onerror = () => resolve(false);
+    open.onsuccess = () => {
+      const database = open.result;
+      if (!database.objectStoreNames.contains('snapshots')) { database.close(); resolve(false); return; }
+      const get = database.transaction('snapshots', 'readonly').objectStore('snapshots').get('latest');
+      get.onerror = () => { database.close(); resolve(false); };
+      get.onsuccess = () => { const ready = Boolean(get.result?.data); database.close(); resolve(ready); };
+    };
+  }));
+  await page.route('**/data/version.json?*', route => route.abort());
+  await page.route('**/data/latest.json.gz?*', route => route.abort());
+  await page.route('**/data/latest.json?*', route => route.abort());
+  const cachedReloadStarted = Date.now();
+  await page.reload(); await ready();
+  assert.ok(Date.now() - cachedReloadStarted < 5000, 'persisted market data should render before the network retry');
+  await page.unroute('**/data/version.json?*');
+  await page.unroute('**/data/latest.json.gz?*');
+  await page.unroute('**/data/latest.json?*');
+  await page.locator('#refreshMarket').click();
+  await page.waitForFunction(()=>!document.querySelector('#refreshMarket').disabled);
   await page.locator('[data-profit-period=day]').click();
   assert.match(await page.locator('#profitLowLabel').textContent(), /日保守/);
   await page.locator('[data-profit-period=month]').click();
