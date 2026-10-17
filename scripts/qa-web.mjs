@@ -226,6 +226,7 @@ try {
   const offlinePage = await offline.newPage();
   await offlinePage.goto('http://127.0.0.1:4175');
   await offlinePage.waitForFunction(() => navigator.serviceWorker.controller);
+  await offlinePage.waitForFunction(() => document.querySelector('#profitLow').textContent !== '--');
   await offline.setOffline(true);
   await offlinePage.goto('http://127.0.0.1:4175/?view=buy&offline-test=1');
   await offlinePage.waitForFunction(() => document.querySelector('#profitLow').textContent !== '--');

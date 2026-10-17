@@ -1,7 +1,7 @@
-const CACHE = 'shoucai-v25';
+const CACHE = 'shoucai-v26';
 const DATA_GZIP = './data/latest.json.gz';
 const DATA_JSON = './data/latest.json';
-const SHELL = ['./', './index.html', './styles.css?v=23', './app.js?v=25', './planner.js', './scenarios.js', './snapshot-loader.js', './snapshot-cache.js', './market-refresh.js', './harvest.js', './engine/buy-window.mjs', './engine/market-history.mjs', './engine/recommend.mjs', './engine/weekend-prices.mjs', './budget.js', './manifest.webmanifest', './runtime-config.js', './favicon.svg', './data/version.json'];
+const SHELL = ['./', './index.html', './styles.css?v=23', './app.js?v=26', './planner.js', './scenarios.js', './snapshot-loader.js', './snapshot-cache.js', './market-refresh.js', './harvest.js', './engine/buy-window.mjs', './engine/market-history.mjs', './engine/recommend.mjs', './engine/weekend-prices.mjs', './budget.js', './manifest.webmanifest', './runtime-config.js', './favicon.svg', './data/version.json'];
 
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(SHELL)).then(() => self.skipWaiting()));
@@ -33,13 +33,19 @@ self.addEventListener('fetch', event => {
       })));
     return;
   }
-  event.respondWith(fetch(event.request)
-    .then(response => {
-      if (event.request.method === 'GET' && response.ok) {
+  event.respondWith(caches.match(event.request, { ignoreSearch: true }).then(cached => {
+    const network = fetch(event.request).then(response => {
+      if (response.ok) {
         const copy = response.clone();
         caches.open(CACHE).then(cache => cache.put(event.request, copy));
       }
       return response;
-    })
-    .catch(async () => (await caches.match(event.request)) || (event.request.mode === 'navigate' ? await caches.match('./index.html') : null) || new Response('暂时无法连接，请联网后重试', { status: 503 })));
+    });
+    if (cached) {
+      event.waitUntil(network.catch(() => {}));
+      return cached;
+    }
+    return network.catch(async () => (event.request.mode === 'navigate' ? await caches.match('./index.html') : null)
+      || new Response('暂时无法连接，请联网后重试', { status: 503 }));
+  }));
 });
