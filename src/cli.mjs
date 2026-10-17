@@ -4,8 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { fetchSpecialOpsSnapshot } from './moligod.mjs';
 import { MarketStore } from './store.mjs';
 import { buildRecommendations } from './recommend.mjs';
-import { buildMarkdownReport, buildNotification, hasActionableBuy, writeReport } from './report.mjs';
-import { showWindowsToast } from './notify.mjs';
+import { buildMarkdownReport, writeReport } from './report.mjs';
 import { enrichRecommendationsWithMarketHistory } from './market-history.mjs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -25,23 +24,8 @@ function appendLog(file, message) {
   fs.appendFileSync(file, `${new Date().toISOString()} ${message}\n`, 'utf8');
 }
 
-function chinaHour() {
-  return Number(new Intl.DateTimeFormat('en-US', {
-    timeZone: 'Asia/Shanghai', hour: '2-digit', hour12: false
-  }).format(new Date()));
-}
-
-function chinaDateHour() {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hour12: false
-  }).formatToParts(new Date());
-  const map = Object.fromEntries(parts.map(part => [part.type, part.value]));
-  return `${map.year}-${map.month}-${map.day} ${map.hour}`;
-}
-
 async function run() {
   const config = loadConfig();
-  const wantsNotification = process.argv.includes('--notify') && config.notifications.enabled;
   const dbPath = resolveProjectPath(config.paths.database);
   const logPath = resolveProjectPath(config.paths.log);
   const store = new MarketStore(dbPath);
@@ -63,28 +47,10 @@ async function run() {
     const written = writeReport(report, destinations);
     appendLog(logPath, `OK snapshot=${saved.snapshotId} recipes=${snapshot.recipes.length} reports=${written.length}`);
 
-    if (wantsNotification) {
-      const isNight = chinaHour() <= 2;
-      const isTemporarilySuppressed = (config.notifications.temporarySuppressNotificationHours ?? [])
-        .includes(chinaDateHour());
-      const shouldNotify = !isTemporarilySuppressed && (
-        !isNight
-        || !config.notifications.nightOnlyWhenActionable
-        || hasActionableBuy(recommendations)
-      );
-      if (shouldNotify) {
-        const notification = buildNotification(recommendations, config);
-        await showWindowsToast(notification.title, notification.body);
-      }
-    }
-
     console.log(report);
   } catch (error) {
     const message = error instanceof Error ? error.stack || error.message : String(error);
     appendLog(logPath, `ERROR ${message.replaceAll('\n', ' | ')}`);
-    if (wantsNotification) {
-      await showWindowsToast('三角洲收菜助手运行失败', String(error?.message || error));
-    }
     throw error;
   } finally {
     store.close();
