@@ -31,6 +31,7 @@ const state = {
   lastStablePlan: loadJson('shoucai.lastStablePlan', null)
 };
 const queueRemote = serialQueue();
+let renderRevision = 0;
 
 const nf = new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 0 });
 const VALID_VIEWS = new Set(['home', 'plans', 'buy', 'sell', 'settings']);
@@ -100,18 +101,34 @@ function renderAll(result = null) {
   renderFreshness();
   renderMode();
   renderCompactRecipes();
-  renderRecipes();
   renderBuyShortcut();
   renderProfit();
-  renderPlans();
-  renderBuys();
-  renderOpportunities();
-  renderStockedMaterials();
-  renderSell();
   renderHarvest();
   renderProposal();
   document.querySelector('#sourceTime').textContent = '行情时间：' + formatDateTime(state.data.generatedAt);
   if (state.data.source?.url?.startsWith('https://moligod.com/')) document.querySelector('#sourceLink').href = state.data.source.url;
+  const activeView = document.querySelector('.view.is-active')?.dataset.view ?? 'home';
+  renderViewDetails(activeView);
+  scheduleDeferredViews();
+}
+
+function renderViewDetails(target) {
+  if (!state.data) return;
+  if (target === 'plans') { renderPlans(); renderRecipes(); }
+  else if (target === 'buy') { renderOpportunities(); renderStockedMaterials(); renderBuys(); }
+  else if (target === 'sell') renderSell();
+}
+
+function scheduleDeferredViews() {
+  const revision = ++renderRevision;
+  const render = () => {
+    if (revision !== renderRevision || !state.data) return;
+    renderPlans(); renderRecipes();
+    renderOpportunities(); renderStockedMaterials(); renderBuys();
+    renderSell();
+  };
+  if ('requestIdleCallback' in window) requestIdleCallback(render, { timeout: 1500 });
+  else setTimeout(render, 50);
 }
 
 function recomputeLocalPlan(result = null) {
@@ -662,6 +679,7 @@ function bindNavigation() {
 
 function openView(target, { updateUrl = true, focus = true } = {}) {
   if (!VALID_VIEWS.has(target)) target = 'home';
+  renderViewDetails(target);
   document.querySelectorAll('.nav-item').forEach(item => {
     const active = item.dataset.target === target;
     item.classList.toggle('is-active', active);
