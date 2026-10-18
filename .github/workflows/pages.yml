@@ -5,7 +5,8 @@ on:
     branches: [main]
   workflow_dispatch:
   schedule:
-    - cron: "17 */2 * * *"
+    # UTC 23:00 / 11:00 = Asia/Shanghai 07:00 / 19:00.
+    - cron: "0 11,23 * * *"
 
 permissions:
   contents: read
@@ -45,6 +46,7 @@ jobs:
           path: .cache/moligod-item-details
           key: moligod-details-${{ runner.os }}-${{ github.run_id }}
       - name: Send actionable buy alerts
+        if: github.event_name == 'schedule'
         continue-on-error: true
         run: npm run notify:buy
         env:

@@ -1,7 +1,7 @@
-const CACHE = 'shoucai-v26';
+const CACHE = 'shoucai-v27';
 const DATA_GZIP = './data/latest.json.gz';
 const DATA_JSON = './data/latest.json';
-const SHELL = ['./', './index.html', './styles.css?v=23', './app.js?v=26', './planner.js', './scenarios.js', './snapshot-loader.js', './snapshot-cache.js', './market-refresh.js', './harvest.js', './engine/buy-window.mjs', './engine/market-history.mjs', './engine/recommend.mjs', './engine/weekend-prices.mjs', './budget.js', './manifest.webmanifest', './runtime-config.js', './favicon.svg', './data/version.json'];
+const SHELL = ['./', './index.html', './styles.css?v=23', './app.js?v=27', './planner.js', './planner-worker.js', './planner-client.js', './computed-cache.js', './refresh-schedule.js', './scenarios.js', './snapshot-loader.js', './snapshot-cache.js', './market-refresh.js', './harvest.js', './engine/buy-window.mjs', './engine/market-history.mjs', './engine/recommend.mjs', './engine/weekend-prices.mjs', './budget.js', './manifest.webmanifest', './runtime-config.js', './favicon.svg'];
 
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(SHELL)).then(() => self.skipWaiting()));
@@ -16,8 +16,8 @@ self.addEventListener('activate', event => {
 self.addEventListener('fetch', event => {
   const requestUrl = new URL(event.request.url);
   if (event.request.method !== 'GET' || requestUrl.origin !== self.location.origin) return;
-  if (requestUrl.pathname.endsWith('/data/latest.json.gz') || requestUrl.pathname.endsWith('/data/latest.json') || requestUrl.pathname.endsWith('/data/version.json')) {
-    const dataKey = requestUrl.pathname.endsWith('/data/version.json') ? './data/version.json'
+  if (requestUrl.pathname.endsWith('/data/latest.json.gz') || requestUrl.pathname.endsWith('/data/latest.json') || requestUrl.pathname.endsWith('/data/version.json') || requestUrl.pathname.endsWith('/data/bootstrap.json')) {
+    const dataKey = requestUrl.pathname.endsWith('/data/bootstrap.json') ? './data/bootstrap.json' : requestUrl.pathname.endsWith('/data/version.json') ? './data/version.json'
       : requestUrl.pathname.endsWith('/data/latest.json.gz') ? DATA_GZIP : DATA_JSON;
     event.respondWith(fetch(event.request)
       .then(response => {

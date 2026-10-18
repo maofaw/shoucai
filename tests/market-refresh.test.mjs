@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createMarketRefresher,MARKET_CHECK_MS} from '../web/market-refresh.js';
 const snapshot = date => ({generatedAt:date,builtAt:date,candidatePools:{workbench:[],tech:[],pharmacy:[],armory:[]},defaults:{placeRules:{}}});
-test('initial, five-minute, visibility and manual checks share a throttle and preserve same data',async()=>{
+test('fixed-check and manual requests share a throttle and preserve same data',async()=>{
   let now=0,calls=0,updates=0;
   const refresher=createMarketRefresher({now:()=>now,load:async()=>{calls++;return {data:snapshot('2026-09-27T00:00:00Z')}},onData:()=>updates++});
   await refresher.check(); await refresher.check();assert.equal(calls,1);

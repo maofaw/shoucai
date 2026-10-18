@@ -11,7 +11,7 @@
   },
   "dashboard": {
     "title": "三角洲收菜助手",
-    "staleAfterHours": 4,
+    "staleAfterHours": 14,
     "defaultAccounts": 0,
     "defaultSharedAccounts": 0,
     "defaultOwnerSharePercent": 100,

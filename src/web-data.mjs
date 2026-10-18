@@ -103,7 +103,7 @@ export function buildDashboardData({ snapshot, metadata, recommendations, buyPla
     schemaVersion: 5,
     generatedAt: new Date(generatedAtMs).toISOString(),
     builtAt: generatedAt.toISOString(),
-    staleAfterHours: Number(config.dashboard?.staleAfterHours ?? 4),
+    staleAfterHours: Number(config.dashboard?.staleAfterHours ?? 14),
     source: {
       name: 'Moligod',
       url: 'https://moligod.com/crafting',

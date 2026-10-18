@@ -10,6 +10,7 @@ import { applyExchangePricing } from './exchange-pricing.mjs';
 import { buildDashboardData } from './web-data.mjs';
 import { enrichSnapshotWithNativeProfit } from './native-profit.mjs';
 import { gzipSync } from 'node:zlib';
+import { buildBootstrap } from '../scripts/build-bootstrap.mjs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const configName = process.env.DASHBOARD_CONFIG ?? 'config.site.json';
@@ -78,6 +79,7 @@ const serialized = `${JSON.stringify(dashboard)}\n`;
 fs.writeFileSync(destination, serialized, 'utf8');
 fs.writeFileSync(`${destination}.gz`, gzipSync(serialized, { level: 9 }));
 fs.writeFileSync(path.join(projectRoot, 'web', 'data', 'version.json'), JSON.stringify({ schemaVersion: dashboard.schemaVersion, builtAt: dashboard.builtAt, generatedAt: dashboard.generatedAt }) + '\n', 'utf8');
+fs.writeFileSync(path.join(projectRoot, 'web', 'data', 'bootstrap.json'), JSON.stringify(buildBootstrap(dashboard)) + '\n', 'utf8');
 const engineDir = path.join(projectRoot, 'web', 'engine');
 fs.mkdirSync(engineDir, { recursive: true });
 for (const name of ['buy-window.mjs', 'market-history.mjs', 'recommend.mjs', 'weekend-prices.mjs']) {

@@ -1,12 +1,12 @@
 import { materialCostForDays, suggestedDaysForBudget } from './budget.js';
-import { migrateSettings, calculatePlan, rankCandidates, sortMaterials as orderMaterials, normalize as normalizeText,
+import { migrateSettings, rankCandidates, sortMaterials as orderMaterials, normalize as normalizeText,
   ADOPTION_KEY, STOCK_KEY, validAdoption, validStockedMaterials, saveStockedMaterial, removeStockedMaterial,
   adoptProposal, adoptRecipe, adoptPlanSummary } from './planner.js';
 import { recordHarvest, revertHarvest, pendingUndo, serialQueue } from './harvest.js';
-import { createMarketRefresher, MARKET_CHECK_MS } from './market-refresh.js';
-import { procurement } from './scenarios.js';
-import { loadMarketSnapshot } from './snapshot-loader.js';
-import { isUsableMarketSnapshot, persistMarketSnapshot, readPersistedMarketSnapshot } from './snapshot-cache.js';
+import { createMarketRefresher } from './market-refresh.js';
+import { computationSignature, homeSnapshot, readComputedResult, writeComputedResult } from './computed-cache.js';
+import { createPlannerClient } from './planner-client.js';
+import { scheduleMarketChecks } from './refresh-schedule.js';
 
 const state = {
   data: null,
@@ -31,7 +31,12 @@ const state = {
   lastStablePlan: loadJson('shoucai.lastStablePlan', null)
 };
 const queueRemote = serialQueue();
-let renderRevision = 0;
+const planner = createPlannerClient();
+let calculationRevision = 0;
+let hydration = null;
+let settingsInitialized = false;
+let stationSettingsInitialized = false;
+let marketScheduleStarted = false;
 const WARM_HOME_KEY = 'shoucai.warmHome';
 
 const nf = new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 0 });
@@ -54,55 +59,120 @@ async function init() {
   bindNavigation();
   bindActions();
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
-  const warmHomeRestored = restoreWarmHome();
-  if (warmHomeRestored) {
-    setWarmControlsDisabled(true);
-  }
-  await loadRemoteState();
-  if (!warmHomeRestored) setText('#marketStatus', '正在读取本机行情缓存…');
-  const cached = await readPersistedMarketSnapshot();
-  const applyData = data => {
-    const first = !state.data;
-    const settings = first ? migrateSettings(state.settings, data.defaults || {}) : state.settings;
-    const result = calculatePlan(data, settings, state.adoption, state.lazy.enabled ? { version: 1, items: [] } : state.stocked);
-    state.data = data;
-    if (first) {
-      state.settings = settings;
-      buildStationSettings(); showSettings();
-      document.querySelector('#scenarioDays').value = state.settings.scenarioDays;
-    }
-    renderAll(result);
-    setWarmControlsDisabled(false);
-  };
-  if (isUsableMarketSnapshot(cached?.data)) applyData(cached.data);
-  state.refresher = createMarketRefresher({ load: async () => {
-    if (state.data) {
-      try {
-        const check = await fetch('./data/version.json?v=' + Date.now(), {cache:'no-store',signal:AbortSignal.timeout(10_000)});
-        if (check.ok && check.headers.get('x-shoucai-offline') !== '1') {
-          const version = await check.json();
-          if (version.builtAt === state.data.builtAt && version.generatedAt === state.data.generatedAt) return {data:state.data,offline:false};
-        }
-      } catch { /* The full snapshot path also supports old deployments and offline cache. */ }
-    }
-    return loadMarketSnapshot({ signal: AbortSignal.timeout(20_000) });
-  }, onData: data => {
-    applyData(data);
-    void persistMarketSnapshot(data);
-  }, onStatus: renderRefreshStatus, initialData: state.data });
-  const firstNetworkCheck = state.refresher.check(true);
-  if (!state.data) await firstNetworkCheck;
+  configureMarketRefresher();
   document.querySelector('#finishSell').hidden = !state.admin;
   restoreUndoNotice();
+  renderHarvest();
   setInterval(() => { if (state.data) renderFreshness(); }, 60_000);
-  setInterval(() => { if (!document.hidden) state.refresher.check(); }, MARKET_CHECK_MS);
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) state.refresher.check(); });
-  window.addEventListener('online', () => state.refresher.check(true));
+  const cached = readComputedResult(localStorage, savedContext());
+  if (cached) applyComputed({ compact: cached, settings: cached.settings });
+  else {
+    // The previous release only saved markup. Preserve its instant preview during one-time migration.
+    restoreWarmHome();
+    const personalized = state.settings || state.adoption || state.stocked.items.length || state.lazy.enabled;
+    if (personalized) await ensureFullData();
+    else {
+      try {
+        const response = await fetch('./data/bootstrap.json', { signal: AbortSignal.timeout(15_000) });
+        if (!response.ok) throw new Error('首页初始化文件暂不可用');
+        const data = await response.json();
+        if (data.computedVersion !== 1 || !data.plan?.profit || !data.defaults?.placeRules) throw new Error('首页初始化数据不完整');
+        applyComputed({ compact: data, settings: data.settings });
+      } catch { await ensureFullData(); }
+    }
+  }
+  void loadRemoteState().then(() => renderHarvest());
+  setText('#marketStatus', navigator.onLine ? '本机结果 · 行情更新于' + formatDateTime(state.data.generatedAt) : '离线使用本机结果');
   const initialView = new URLSearchParams(location.search).get('view');
   if (VALID_VIEWS.has(initialView) && initialView !== 'home') openView(initialView, { updateUrl: false, focus: false });
 }
 
+function configureMarketRefresher() {
+  state.refresher = createMarketRefresher({ load: async () => {
+    const context = currentContext(), signature = computationSignature(context);
+    const computed = await planner.request('refresh', context);
+    if (computed.unchanged) return { data: state.data, offline: false };
+    if (signature !== computationSignature(currentContext())) {
+      const revised = await planner.request('calculate', currentContext());
+      return { data: { ...revised.compact, workerResult: revised }, offline: false };
+    }
+    return { data: { ...computed.compact, workerResult: computed }, offline: false };
+  }, onData: async data => {
+    applyComputed(data.workerResult);
+    const active = document.querySelector('.view.is-active')?.dataset.view;
+    if (['plans', 'buy', 'settings'].includes(active)) await ensureFullData();
+  }, onStatus: renderRefreshStatus });
+}
+
+function savedContext() {
+  return { settings: loadJson('shoucai.settings', null), adoption: state.adoption, stocked: state.stocked, lazy: state.lazy.enabled };
+}
+function currentContext() {
+  return { settings: state.settings, adoption: state.adoption, stocked: state.stocked, lazy: state.lazy.enabled,
+    version: state.data ? { builtAt: state.data.builtAt, generatedAt: state.data.generatedAt } : null };
+}
+function applyComputed(computed) {
+  state.settings = computed.settings;
+  state.data = computed.full ? { ...computed.full, lazyDemand: computed.compact.lazyDemand } : { ...computed.compact };
+  state.proposal = computed.result?.proposal ?? computed.compact.proposal;
+  if (!settingsInitialized) {
+    showSettings();
+    document.querySelector('#scenarioDays').value = state.settings.scenarioDays;
+    settingsInitialized = true;
+  }
+  if (computed.full && !stationSettingsInitialized) {
+    buildStationSettings();
+    stationSettingsInitialized = true;
+  }
+  renderAll(computed.result ?? { plan: computed.compact.plan, buyPlan: computed.compact.buyPlan,
+    sell: computed.compact.sell, proposal: computed.compact.proposal });
+  const compact = computed.compact;
+  writeComputedResult(localStorage, savedContext(), compact);
+  if (computed.full || !hydration) document.querySelector('#detailLoading').hidden = true;
+  state.refresher?.setData(state.data);
+  if (!marketScheduleStarted) {
+    marketScheduleStarted = true;
+    scheduleMarketChecks({ check: () => state.refresher.check(true), generatedAt: () => state.data?.generatedAt,
+      storage: localStorage, isVisible: () => !document.hidden });
+  }
+}
+async function ensureFullData() {
+  if (state.data?.candidatePools) return;
+  if (hydration) return hydration;
+  setText('#detailLoading', '正在读取详细行情，首页和收菜操作仍可使用…');
+  document.querySelector('#detailLoading').hidden = false;
+  document.querySelector('#settingsForm').inert = true;
+  hydration = (async () => {
+    let context = currentContext();
+    let computed = await planner.request('hydrate', context);
+    if (computationSignature(context) !== computationSignature(currentContext())) computed = await planner.request('hydrate', currentContext());
+    applyComputed(computed);
+    document.querySelector('#detailLoading').hidden = true;
+  })().catch(error => {
+    setText('#detailLoading', '详细行情暂不可用：' + error.message + '。可点击“刷新行情”重试。');
+    throw error;
+  }).finally(() => { hydration = null; document.querySelector('#settingsForm').inert = false; });
+  return hydration;
+}
+async function recalculate() {
+  const revision = ++calculationRevision;
+  document.body.dataset.calculating = 'true';
+  setText('#marketStatus', '正在后台计算，不影响当前查看');
+  try {
+    const computed = await planner.request('calculate', currentContext());
+    if (revision !== calculationRevision) return;
+    const full = state.data?.candidatePools ? state.data : null;
+    applyComputed({ ...computed, ...(full && full.builtAt === computed.compact.builtAt ? { full } : {}) });
+    setText('#marketStatus', '已按当前设置重新计算 · 行情更新于' + formatDateTime(state.data.generatedAt));
+  } catch (error) {
+    setText('#marketStatus', '计算失败，已保留上次结果：' + error.message);
+    throw error;
+  } finally {
+    if (revision === calculationRevision) document.body.dataset.calculating = 'false';
+  }
+}
 function renderAll(result = null) {
+  if (!result) return recalculate();
   recomputeLocalPlan(result);
   renderFreshness();
   renderMode();
@@ -116,7 +186,8 @@ function renderAll(result = null) {
   const activeView = document.querySelector('.view.is-active')?.dataset.view ?? 'home';
   renderViewDetails(activeView);
   persistWarmHome();
-  scheduleDeferredViews();
+  writeComputedResult(localStorage, savedContext(), homeSnapshot(state.data, { plan: state.data.plan,
+    buyPlan: state.data.buyPlan, sell: state.data.sell, proposal: state.proposal }, state.settings));
 }
 
 function warmHomeSignature() {
@@ -183,22 +254,17 @@ function restoreWarmHome() {
     document.body.classList.toggle('is-lazy-mode', cached.lazyMode === true);
     document.querySelector('#lazyModeToggle').checked = cached.lazyMode === true;
     const ageMs = Date.now() - Date.parse(cached.generatedAt);
-    const stale = !Number.isFinite(ageMs) || ageMs > 4 * 3_600_000;
+    const stale = !Number.isFinite(ageMs) || ageMs > 14 * 3_600_000;
     const pill = document.querySelector('#freshness');
     pill.textContent = stale ? '上次结果已过期' : '上次结果 · ' + relativeAge(ageMs);
     pill.classList.toggle('is-fresh', false);
     pill.classList.toggle('is-stale', stale);
     document.querySelector('#staleBanner').hidden = !stale;
-    setText('#marketStatus', '已先显示上次结果，正在后台更新行情与利润');
+    setText('#marketStatus', '本机缓存 · 正在完成一次性升级');
     return true;
   } catch {
     return false;
   }
-}
-
-function setWarmControlsDisabled(disabled) {
-  document.querySelector('#lazyModeToggle').disabled = disabled;
-  document.querySelectorAll('[data-profit-period]').forEach(button => { button.disabled = disabled; });
 }
 
 function renderViewDetails(target) {
@@ -208,22 +274,8 @@ function renderViewDetails(target) {
   else if (target === 'sell') renderSell();
 }
 
-function scheduleDeferredViews() {
-  const revision = ++renderRevision;
-  const render = () => {
-    if (revision !== renderRevision || !state.data) return;
-    renderPlans(); renderRecipes();
-    renderOpportunities(); renderStockedMaterials(); renderBuys();
-    renderSell();
-  };
-  if ('requestIdleCallback' in window) requestIdleCallback(render, { timeout: 1500 });
-  else setTimeout(render, 50);
-}
-
 function recomputeLocalPlan(result = null) {
-  if (!state.data.candidatePools) return;
-  if (state.lazy.enabled) result = null;
-  result ??= calculatePlan(state.data, state.settings, state.adoption, state.lazy.enabled ? { version: 1, items: [] } : state.stocked);
+  if (!result) return;
   state.data.plan = result.plan;
   if (result.plan.marketRegime?.status === 'normal' && result.plan.stablePlan?.canAdopt) {
     state.lastStablePlan = result.plan.stablePlan;
@@ -240,10 +292,11 @@ function recomputeLocalPlan(result = null) {
 function renderRefreshStatus(status) {
   document.querySelector('#refreshMarket').disabled = status.checking;
   document.querySelector('#refreshMarket').textContent = status.checking ? '正在检查…' : '刷新行情';
+  if (document.body.dataset.calculating === 'true' && !status.error) return;
   const offlineMessage = status.error && state.data && navigator.onLine === false;
-  setText('#marketStatus', offlineMessage ? '当前使用离线缓存，联网后会自动更新。'
+  setText('#marketStatus', offlineMessage ? '离线使用本机结果（离线缓存）'
     : status.error ? `刷新失败：${status.error}。${state.data ? '已保留最后可用数据。' : '请点击刷新重试。'}`
-    : status.checking ? (state.data ? '已显示本机行情，正在后台检查更新' : '首次加载行情，请稍候…') : '最后成功检查：' + formatDateTime(status.lastSuccess));
+    : status.checking ? '正在后台同步新行情，不影响当前查看' : '行情已更新 · 行情时间：' + formatDateTime(state.data.generatedAt));
   if (!state.data && status.error) {
     setText('#freshness','行情读取失败');
     document.querySelector('#recipeList').innerHTML = '<p class="empty-state">行情读取失败，可使用顶部“刷新行情”重试。</p>';
@@ -272,7 +325,7 @@ function renderProposal() {
 
 function renderFreshness() {
   const ageMs = Date.now() - new Date(state.data.generatedAt).getTime();
-  const stale = !Number.isFinite(ageMs) || ageMs > (state.data.staleAfterHours || 4) * 3_600_000;
+  const stale = !Number.isFinite(ageMs) || ageMs > 14 * 3_600_000;
   const pill = document.querySelector('#freshness');
   pill.textContent = stale ? '数据已过期' : relativeAge(ageMs) + '更新';
   pill.classList.toggle('is-fresh', !stale);
@@ -297,18 +350,9 @@ function renderMode() {
   material.hidden = !state.lazy.enabled;
   switchCard.hidden = !state.lazy.enabled;
   if (!state.lazy.enabled) return;
-  const demand = new Map();
-  for (const row of state.data.plan?.recipes ?? []) {
-    const candidate = rankCandidates(state.data, state.settings, row.place, state.settings.techMode, true).find(item => item.id === row.id);
-    const purchase = candidate ? procurement({ ...candidate, runsPerWeek: 1 }, 7) : null;
-    for (const item of purchase?.materials ?? []) {
-      const key = normalizeText(item.name), old = demand.get(key) ?? { name: item.name, count: 0, cost: 0 };
-      old.count += item.count; old.cost += item.cost; demand.set(key, old);
-    }
-  }
   const multiplier = state.settings.accounts > 0 ? state.settings.accounts : 1;
   const scope = state.settings.accounts > 0 ? `全部${state.settings.accounts}个号` : '每个账号';
-  const rows = [...demand.values()];
+  const rows = state.data.lazyDemand ?? [];
   material.innerHTML = '<div class="lazy-summary__head"><div><span>本轮现买材料</span><strong>' + scope + '</strong></div><b>' + moneyWan(rows.reduce((sum, row) => sum + row.cost, 0) * multiplier) + '</b></div>' +
     (rows.length ? '<details><summary>查看' + rows.length + '种材料数量</summary><ul>' + rows.map(row => '<li><span>' + escapeHtml(row.name) + '</span><strong>' + nf.format(Math.ceil(row.count * multiplier)) + '个</strong></li>').join('') + '</ul></details>' : '<p>材料数据待更新。</p>');
   const lazy = state.data.plan?.lazyPlan;
@@ -360,7 +404,8 @@ function renderRecipes() {
   }).join('');
 }
 
-function openRecipePicker(place, requestedId = null) {
+async function openRecipePicker(place, requestedId = null) {
+  try { await ensureFullData(); } catch { return; }
   const candidates = rankCandidates(state.data, state.settings, place);
   if (!candidates.length) {
     showToast('当前允许时长内没有可选配方，请先调整设置。');
@@ -382,16 +427,20 @@ function openRecipePicker(place, requestedId = null) {
   select.focus();
 }
 
-function updateRecipePickerPreview() {
+async function updateRecipePickerPreview() {
   const picker = state.recipePicker;
   if (!picker) return;
   const id = Number(document.querySelector('#recipePickerSelect').value);
   const candidate = picker.candidates.find(row => row.id === id);
   const preview = document.querySelector('#recipePickerPreview');
   const error = document.querySelector('#recipePickerError');
+  const requestId = picker.previewRevision = (picker.previewRevision ?? 0) + 1;
+  document.querySelector('#confirmRecipePicker').disabled = true;
+  preview.textContent = '正在后台计算这套配方…';
   try {
     const record = adoptRecipe(state.adoption, state.proposal, picker.place, candidate);
-    const result = calculatePlan(state.data, state.settings, record, state.stocked);
+    const { result } = await planner.request('calculate', { ...currentContext(), adoption: record });
+    if (state.recipePicker !== picker || picker.previewRevision !== requestId) return;
     picker.record = record; picker.result = result;
     const factor = state.settings.accounts - state.settings.sharedAccounts + state.settings.sharedAccounts * state.settings.userShare / 100;
     const oldWeekly = numberOrNull(state.data.plan?.profit?.conservativeWeeklyPerAccount);
@@ -742,7 +791,7 @@ function renderSell() {
 function renderHarvest() {
   clearInterval(state.countdownTimer);
   const finishedAt = localStorage.getItem('shoucai.lastHarvestFinishedAt');
-  const hours = state.data.harvest?.cycleHours || 8;
+  const hours = state.data?.harvest?.cycleHours || 8;
   const next = finishedAt ? new Date(new Date(finishedAt).getTime() + hours * 3_600_000) : null;
   const time = document.querySelector('#nextHarvest');
   const countdown = document.querySelector('#harvestCountdown');
@@ -788,13 +837,15 @@ function openView(target, { updateUrl = true, focus = true } = {}) {
     if (url.href !== location.href) history.pushState({ view: target }, '', url);
   }
   window.scrollTo({ top: 0, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  if (['plans', 'buy', 'settings'].includes(target)) void ensureFullData().catch(() => {});
 }
 
 function saveLazyState() {
   localStorage.setItem('shoucai.lazyMode', JSON.stringify(state.lazy));
 }
 
-function setLazyMode(enabled) {
+async function setLazyMode(enabled) {
+  try { await ensureFullData(); } catch { return; }
   if (enabled === state.lazy.enabled) { renderMode(); return; }
   if (enabled) {
     const lazyPlan = state.data?.plan?.lazyPlan;
@@ -808,7 +859,7 @@ function setLazyMode(enabled) {
       const record = adoptPlanSummary(lazyPlan.best);
       state.lazy = { version: 1, enabled: true, backupAdoption: state.adoption, advanced: false };
       state.adoption = record;
-      localStorage.setItem(ADOPTION_KEY, JSON.stringify(record)); saveLazyState(); renderAll();
+      localStorage.setItem(ADOPTION_KEY, JSON.stringify(record)); saveLazyState(); await renderAll();
       showToast('懒人模式已开启：现买材料、稳定制造、周末卖出');
     } catch (error) { showToast(error.message); renderMode(); }
     return;
@@ -820,32 +871,33 @@ function setLazyMode(enabled) {
     state.adoption = backup; localStorage.setItem(ADOPTION_KEY, JSON.stringify(backup));
     showToast('已退出懒人模式，并恢复开启前的四台方案');
   } else showToast('已退出懒人模式；未找到完整备份，保留当前方案');
-  renderAll();
+  await renderAll();
 }
 
 function bindActions() {
   document.querySelector('#refreshMarket').addEventListener('click', () => state.refresher?.check(true));
-  document.querySelector('#openAccountSettings').addEventListener('click', () => {
+  document.querySelector('#openAccountSettings').addEventListener('click', async () => {
     openView('settings');
+    try { await ensureFullData(); } catch { return; }
     document.querySelector('#accounts').closest('details')?.setAttribute('open', '');
     document.querySelector('#accounts').focus();
   });
   document.querySelectorAll('[data-profit-period]').forEach(button => button.addEventListener('click', () => {
     state.profitPeriod = button.dataset.profitPeriod;
     localStorage.setItem('shoucai.uiPreferences', JSON.stringify({ version: 1, profitPeriod: state.profitPeriod }));
-    renderProfit();
+    if (state.data) renderProfit();
   }));
   document.querySelector('#openPlans').addEventListener('click', () => openView('plans'));
   document.querySelector('#lazyAdvanced').addEventListener('click', () => { state.lazy.advanced = true; saveLazyState(); openView('plans'); });
   document.querySelector('#backToLazyHome').addEventListener('click', () => openView('home'));
   document.querySelectorAll('#lazyModeToggle, #lazyModeSetting').forEach(input => input.addEventListener('change', event => {
-    setLazyMode(event.target.checked);
+    void setLazyMode(event.target.checked).catch(error => showToast('切换失败：' + error.message));
   }));
-  document.querySelector('#adoptPlan').addEventListener('click', () => {
+  document.querySelector('#adoptPlan').addEventListener('click', async () => {
     try {
       const record = adoptProposal(state.proposal);
       localStorage.setItem(ADOPTION_KEY, JSON.stringify(record));
-      state.adoption = record; renderAll();
+      state.adoption = record; await renderAll();
       showToast('已采用，利润和采购清单已切换；收菜时间未改变');
     } catch (error) { showToast(error.message); }
   });
@@ -857,7 +909,7 @@ function bindActions() {
   document.querySelector('#closeRecipePicker').addEventListener('click', closeRecipePicker);
   document.querySelector('#cancelRecipePicker').addEventListener('click', closeRecipePicker);
   document.querySelector('#recipePicker').addEventListener('cancel', event => { event.preventDefault(); closeRecipePicker(); });
-  document.querySelector('#recipePickerForm').addEventListener('submit', event => {
+  document.querySelector('#recipePickerForm').addEventListener('submit', async event => {
     event.preventDefault();
     const record = state.recipePicker?.record;
     if (!record) return;
@@ -865,7 +917,7 @@ function bindActions() {
       localStorage.setItem(ADOPTION_KEY, JSON.stringify(record));
       state.adoption = record;
       closeRecipePicker();
-      renderAll();
+      await renderAll();
       showToast('本台配方已更换，利润和买料清单已重新计算');
     } catch (error) { showToast('保存失败：' + error.message); }
   });
@@ -893,11 +945,11 @@ function bindActions() {
     if (!button) return;
     state.selectedPlanType = button.dataset.planType; renderPlans();
   });
-  document.querySelector('#lazySwitchCard').addEventListener('click', event => {
+  document.querySelector('#lazySwitchCard').addEventListener('click', async event => {
     if (!event.target.closest('#adoptLazyNext')) return;
     try {
       const record = adoptPlanSummary(state.data.plan?.lazyPlan?.recommended);
-      localStorage.setItem(ADOPTION_KEY, JSON.stringify(record)); state.adoption = record; renderAll();
+      localStorage.setItem(ADOPTION_KEY, JSON.stringify(record)); state.adoption = record; await renderAll();
       showToast('已采用下一轮稳定方案，当前收菜时间未改变');
     } catch (error) { showToast(error.message); }
   });
@@ -905,25 +957,25 @@ function bindActions() {
     const stock = event.target.closest('[data-stock-material]');
     if (stock) openStockDialog(stock.dataset.stockMaterial, Number(stock.dataset.stockPrice), Number(stock.dataset.stockDays));
   });
-  document.querySelector('#stockedList').addEventListener('click', event => {
+  document.querySelector('#stockedList').addEventListener('click', async event => {
     const edit = event.target.closest('[data-stock-material]');
     if (edit) return openStockDialog(edit.dataset.stockMaterial, Number(edit.dataset.stockPrice), Number(edit.dataset.stockDays));
     const remove = event.target.closest('[data-remove-stock]');
     if (!remove || !confirm('删除“' + remove.dataset.removeStock + '”的囤货记录吗？利润会恢复按现价计算。')) return;
     state.stocked = removeStockedMaterial(state.stocked, remove.dataset.removeStock);
     localStorage.setItem(STOCK_KEY, JSON.stringify(state.stocked));
-    renderAll(); showToast('已删除囤货记录，利润已按现价重算');
+    await renderAll(); showToast('已删除囤货记录，利润已按现价重算');
   });
   document.querySelector('#toggleOpportunities').addEventListener('click', () => { state.showAllOpportunities = !state.showAllOpportunities; renderOpportunities(); });
   document.querySelector('#closePlanPreview').addEventListener('click', closePlanPreview);
   document.querySelector('#cancelPlanPreview').addEventListener('click', closePlanPreview);
   document.querySelector('#planPreviewDialog').addEventListener('cancel', event => { event.preventDefault(); closePlanPreview(); });
-  document.querySelector('#planPreviewForm').addEventListener('submit', event => {
+  document.querySelector('#planPreviewForm').addEventListener('submit', async event => {
     event.preventDefault();
     try {
       const record = adoptPlanSummary(state.planPreview);
       localStorage.setItem(ADOPTION_KEY, JSON.stringify(record));
-      state.adoption = record; closePlanPreview(); renderAll();
+      state.adoption = record; closePlanPreview(); await renderAll();
       showToast('已采用整套方案，利润和采购清单已重新计算');
     } catch (error) { showToast(error.message); }
   });
@@ -932,23 +984,23 @@ function bindActions() {
   document.querySelector('#stockDialog').addEventListener('cancel', event => { event.preventDefault(); closeStockDialog(); });
   document.querySelector('#stockUnitPrice').addEventListener('input', updateStockPreview);
   document.querySelector('#stockCoverageDays').addEventListener('change', updateStockPreview);
-  document.querySelector('#stockForm').addEventListener('submit', event => {
+  document.querySelector('#stockForm').addEventListener('submit', async event => {
     event.preventDefault();
     const error = document.querySelector('#stockError');
     try {
       state.stocked = saveStockedMaterial(state.stocked, { name: document.querySelector('#stockMaterialName').value,
         unitPrice: Number(document.querySelector('#stockUnitPrice').value), coverageDays: Number(document.querySelector('#stockCoverageDays').value) });
       localStorage.setItem(STOCK_KEY, JSON.stringify(state.stocked));
-      error.hidden = true; closeStockDialog(); renderAll();
+      error.hidden = true; closeStockDialog(); await renderAll();
       showToast('已记录真实囤货价，当前方案利润已重新计算');
     } catch (failure) { error.textContent = failure.message; error.hidden = false; }
   });
-  document.querySelector('#scenarioDays').addEventListener('change', event => {
+  document.querySelector('#scenarioDays').addEventListener('change', async event => {
     if (!state.data) return;
     try {
       const next = { ...state.settings, scenarioDays: Number(event.target.value) };
       localStorage.setItem('shoucai.settings', JSON.stringify(next));
-      state.settings = next; renderAll();
+      state.settings = next; await renderAll();
     } catch (error) { event.target.value = state.settings.scenarioDays; showToast('保存失败：' + error.message); }
   });
   document.querySelector('#settingsForm').addEventListener('input', event => {
@@ -967,7 +1019,7 @@ function bindActions() {
     state.selectedDays = button.dataset.days;
     renderBuys();
   }));
-  document.querySelector('#settingsForm').addEventListener('submit', event => {
+  document.querySelector('#settingsForm').addEventListener('submit', async event => {
     event.preventDefault();
     const error = document.querySelector('#settingsError');
     try {
@@ -975,7 +1027,8 @@ function bindActions() {
       localStorage.setItem('shoucai.settings', JSON.stringify(next));
       state.settings = next;
       error.hidden = true;
-      renderAll();
+      setText('#settingsStatus', '已保存，正在后台重新计算…');
+      await renderAll();
       setText('#settingsStatus', '已保存到当前设备，所有建议已重新计算');
       showToast('设置已保存，制造和买料建议已重新计算');
     } catch (failure) {
@@ -1014,7 +1067,7 @@ function bindActions() {
   });
   document.querySelectorAll('[data-reset-group]').forEach(button => button.addEventListener('click', () => {
     if (button.dataset.resetGroup === 'basic' && !confirm('确定把账号、分成和本人比例恢复为通用默认值0／0／100%吗？')) return;
-    resetSettingsGroup(button.dataset.resetGroup);
+    void resetSettingsGroup(button.dataset.resetGroup).catch(error => showToast('计算失败：' + error.message));
   }));
   document.querySelector('#finishSell').addEventListener('click', async event => {
     const at = new Date().toISOString();
@@ -1024,7 +1077,7 @@ function bindActions() {
   });
 }
 
-function resetSettingsGroup(group) {
+async function resetSettingsGroup(group) {
   const defaults = state.data.defaults || {};
   const fresh = migrateSettings(null, defaults);
   const draft = readSettingsForm(false);
@@ -1047,7 +1100,7 @@ function resetSettingsGroup(group) {
   if (group === 'profit') for (const key of ['conservativePercentile', 'highPercentile', 'historyDays']) draft[key] = saved[key];
   if (group === 'buy') for (const key of ['buy7', 'buy14', 'buy30', 'stableShare', 'stableSpread']) draft[key] = saved[key];
   state.settings = draft; buildStationSettings(); showSettings(); state.settings = saved;
-  renderAll(); showToast('本组已恢复默认；其他未保存的输入仍保留');
+  await renderAll(); showToast('本组已恢复默认；其他未保存的输入仍保留');
 }
 
 function readSettingsForm(validate = true) {

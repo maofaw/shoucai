@@ -1,4 +1,4 @@
-export const MARKET_CHECK_MS = 5 * 60_000;
+export const MARKET_CHECK_MS = 12 * 60 * 60_000;
 
 // Scheduling is injected by the UI; this state machine is also used in tests.
 export function createMarketRefresher({ load, onData, onStatus = () => {}, now = Date.now, interval = MARKET_CHECK_MS, initialData = null }) {
@@ -10,9 +10,9 @@ export function createMarketRefresher({ load, onData, onStatus = () => {}, now =
     try {
       const result = await load();
       const incoming = result.data;
-      if (!incoming?.candidatePools || !incoming?.defaults?.placeRules || !Number.isFinite(Date.parse(incoming.generatedAt))
+      if ((!incoming?.candidatePools && incoming?.computedVersion !== 1) || !incoming?.defaults?.placeRules || !Number.isFinite(Date.parse(incoming.generatedAt))
         || !Number.isFinite(Date.parse(incoming.builtAt ?? incoming.generatedAt))
-        || !['workbench','tech','pharmacy','armory'].every(place=>Array.isArray(incoming.candidatePools[place]))) throw new Error('行情文件不完整');
+        || (incoming.candidatePools && !['workbench','tech','pharmacy','armory'].every(place=>Array.isArray(incoming.candidatePools[place])))) throw new Error('行情文件不完整');
       if (result.offline) {
         if (!data) { await onData(incoming); data = incoming; }
         throw new Error('当前使用离线缓存');
@@ -33,6 +33,7 @@ export function createMarketRefresher({ load, onData, onStatus = () => {}, now =
       pending = perform().finally(() => { pending = null; });
       return pending;
     },
+    setData(value) { data = value; },
     status: () => ({ ...status })
   };
 }

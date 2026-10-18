@@ -6,6 +6,7 @@
   "description": "低频读取 moligod 特勤处快照并生成三角洲收菜建议",
   "scripts": {
     "run": "node src/cli.mjs run",
+    "prebuild:web": "node scripts/sync-web-engine.mjs",
     "build:web": "node src/build-web.mjs",
     "notify:buy": "node scripts/send-buy-alerts.mjs",
     "serve:web": "node scripts/serve-web.mjs",

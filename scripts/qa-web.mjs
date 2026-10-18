@@ -16,29 +16,27 @@ try {
   const page = await context.newPage();
   page.on('pageerror', error => { errors.push(error.message); console.error('[pageerror]', error.message); });
   const ready = async () => { await page.waitForFunction(() => document.querySelector('#profitLow').textContent !== '--'); };
-  const view = async name => { await page.locator(`[data-target="${name}"]`).click(); };
+  const view = async name => {
+    await page.locator(`[data-target="${name}"]`).click();
+    if (['plans', 'buy', 'settings'].includes(name)) await page.waitForFunction(() => document.querySelector('#detailLoading').hidden);
+  };
+  const calculated = () => page.waitForFunction(() => document.body.dataset.calculating !== 'true');
+  const requests = [];
+  page.on('request', request => requests.push(request.url()));
   await page.goto('http://127.0.0.1:4175'); await ready();
   assert.equal(await page.locator('#compactRecipeList article').count(), 4);
   assert.equal(await page.locator('.profit-card').count(), 2);
   assert.equal(await page.locator('#accountSetupBanner').isVisible(), true);
   assert.match(await page.locator('#profitLow').textContent(), /请先设置账号数/);
-  await page.waitForFunction(() => new Promise(resolve => {
-    const open = indexedDB.open('shoucai-market-cache');
-    open.onerror = () => resolve(false);
-    open.onsuccess = () => {
-      const database = open.result;
-      if (!database.objectStoreNames.contains('snapshots')) { database.close(); resolve(false); return; }
-      const get = database.transaction('snapshots', 'readonly').objectStore('snapshots').get('latest');
-      get.onerror = () => { database.close(); resolve(false); };
-      get.onsuccess = () => { const ready = Boolean(get.result?.data); database.close(); resolve(ready); };
-    };
-  }));
+  assert.equal(requests.some(url => /data\/(latest|version)/.test(url)), false, 'first visit only loads bootstrap');
+  requests.length = 0;
   await page.route('**/data/version.json?*', route => route.abort());
   await page.route('**/data/latest.json.gz?*', route => route.abort());
   await page.route('**/data/latest.json?*', route => route.abort());
   const cachedReloadStarted = Date.now();
   await page.reload(); await ready();
-  assert.ok(Date.now() - cachedReloadStarted < 5000, 'persisted market data should render before the network retry');
+  assert.ok(Date.now() - cachedReloadStarted < 500, 'computed home should display in under 500ms');
+  assert.equal(requests.some(url => /data\//.test(url)), false, 'cache startup makes zero market requests');
   await page.waitForFunction(() => !document.querySelector('[data-profit-period="day"]').disabled).catch(async error => {
     console.error('[warm-cache-debug]', await page.evaluate(() => ({
       status: document.querySelector('#marketStatus')?.textContent,
@@ -56,6 +54,12 @@ try {
   await page.locator('[data-profit-period=day]').click();
   assert.match(await page.locator('#profitLowLabel').textContent(), /日保守/);
   await page.locator('[data-profit-period=month]').click();
+  const responsiveStarted = Date.now();
+  await page.locator('[data-target=plans]').click();
+  await page.locator('[data-target=home]').click();
+  await page.locator('[data-profit-period=week]').click();
+  assert.match(await page.locator('#profitLowLabel').textContent(), /周保守/);
+  assert.ok(Date.now() - responsiveStarted < 1500, 'worker calculation must not block navigation or period switching');
   await view('plans');
   assert.equal(await page.locator('.recipe-card').count(), 4);
   assert.equal(await page.locator('#planDetail .plan-option').count(), 1);
@@ -82,6 +86,7 @@ try {
   await page.locator('#shortWeeklyRuns').fill('14');
   await page.locator('#historyDays').selectOption('1');
   await page.locator('#settingsForm button[type=submit]').click();
+  await calculated();
   assert.match(await page.locator('#settingsStatus').textContent(), /已保存/);
   assert.equal(await page.locator('#settingsError').isVisible(), false);
   await view('home');
@@ -99,11 +104,13 @@ try {
   await page.locator('#buy7').fill('30'); await page.locator('#buy14').fill('15');
   await page.locator('#userShare').fill('0');
   await page.locator('#settingsForm button[type=submit]').click();
+  await calculated();
   await page.reload(); await ready();
   assert.equal(await page.locator('#userShare').inputValue(), '0');
   await view('plans');
   assert.match(await page.locator('#activePlanLabel').textContent(),/待确认/);
   await page.locator('#adoptPlan').click();
+  await calculated();
   assert.match(await page.locator('#activePlanLabel').textContent(),/已采用/);
   await page.locator('[data-plan-type=currentBest]').click();
   await page.locator('[data-preview-plan=currentBest]').click();
@@ -115,6 +122,7 @@ try {
   const recipeNames = await page.locator('.recipe-main').allTextContents();
   await page.locator('[data-plan-type=lowBest]').click();
   await page.locator('#scenarioDays').selectOption('14');
+  await calculated();
   assert.match(await page.locator('#profitBasis').textContent(),/按14天完整采购/);
   await view('settings'); await page.locator('#accounts').fill('33');
   const fresh = JSON.parse(fs.readFileSync('web/data/latest.json','utf8'));
@@ -146,20 +154,26 @@ try {
   await page.route('**/data/latest.json.gz?*',route=>route.fulfill({body:freshGzip,contentType:'application/gzip'}));
   await page.locator('#refreshMarket').click();
   await page.waitForFunction(()=>!document.querySelector('#refreshMarket').disabled);
-  assert.match(await page.locator('#marketStatus').textContent(),/最后成功检查/);
+  assert.match(await page.locator('#marketStatus').textContent(),/行情已更新/);
   assert.equal(await page.locator('#accounts').inputValue(),'33');
   await view('home');
   await page.locator('.mode-card .switch').click();
+  await calculated();
   assert.equal(await page.locator('body').evaluate(node => node.classList.contains('is-lazy-mode')), true);
   assert.equal(await page.locator('#lazyMaterialSummary').isVisible(), true);
   await page.locator('.mode-card .switch').click();
+  await calculated();
   assert.equal(await page.locator('body').evaluate(node => node.classList.contains('is-lazy-mode')), false);
   await view('settings');
   const modeStatusBefore = await page.locator('#settingsStatus').textContent();
   await page.locator('#lazyModeSetting').click();
+  await calculated();
   assert.equal(await page.locator('#settingsStatus').textContent(), modeStatusBefore);
+  await page.waitForFunction(() => document.body.classList.contains('is-lazy-mode'));
   await page.locator('#lazyModeSetting').click();
+  await calculated();
   assert.equal(await page.locator('#settingsStatus').textContent(), modeStatusBefore);
+  await page.waitForFunction(() => !document.body.classList.contains('is-lazy-mode'));
   await view('buy');
   assert.equal(await page.locator('#stableOpportunityList > details:not([open])').count() > 0, true);
   await view('plans');
@@ -174,10 +188,13 @@ try {
     assert.equal(await page.locator('#stockDialog').isVisible(), true);
     await page.locator('#stockUnitPrice').fill('12345');
     await page.locator('#stockForm button[type=submit]').click();
+    await calculated();
+    await page.waitForFunction(() => !document.querySelector('#stockedSection').hidden);
     assert.equal(await page.locator('#stockedSection').isVisible(), true);
     assert.match(await page.evaluate(()=>localStorage.getItem('shoucai.stockedMaterials')),/12345/);
     page.once('dialog', dialog => dialog.accept());
     await page.locator('[data-remove-stock]').first().click();
+    await calculated();
   }
   for (const size of [{ width: 375, height: 812 }, { width: 812, height: 375 }, { width: 1440, height: 900 }]) {
     await page.setViewportSize(size);
@@ -199,18 +216,21 @@ try {
     }
   }
   assert.deepEqual(errors, []);
+  console.log('PASS: interactive UI, worker calculations, all viewport layouts');
   await context.close();
-  // Real timers, paused time: periodic and foreground checks read only a tiny
-  // version marker when data has not changed, and do not replace a form draft.
+  // No startup/foreground/online polling. Missed fixed slot checks after 30s.
   const scheduled = await browser.newContext({serviceWorkers:'block'});
   const timerPage = await scheduled.newPage();
   await timerPage.clock.install();
   let versions=0,snapshots=0;
   timerPage.on('request',request=>{if(request.url().includes('/data/version.json'))versions++;if(request.url().includes('/data/latest.json'))snapshots++;});
   await timerPage.goto('http://127.0.0.1:4175/?view=settings');
-  await timerPage.waitForFunction(()=>document.querySelector('#accounts').value !== '');
+  await timerPage.waitForFunction(()=>document.querySelector('#detailLoading').hidden && document.querySelector('#accounts').value !== '');
   await timerPage.locator('#accounts').fill('37');
-  await timerPage.clock.fastForward(300001);
+  assert.equal(versions,0);
+  await timerPage.clock.fastForward(29000);
+  assert.equal(versions,0);
+  await timerPage.clock.fastForward(1001);
   await timerPage.waitForFunction(()=>!document.querySelector('#refreshMarket').disabled);
   assert.equal(versions,1);assert.equal(snapshots,1);
   await timerPage.evaluate(()=>Object.defineProperty(document,'hidden',{value:true,configurable:true}));
@@ -218,20 +238,54 @@ try {
   assert.equal(versions,1);
   await timerPage.evaluate(()=>{Object.defineProperty(document,'hidden',{value:false,configurable:true});document.dispatchEvent(new Event('visibilitychange'));});
   await timerPage.waitForFunction(()=>!document.querySelector('#refreshMarket').disabled);
-  assert.equal(versions,2);assert.equal(snapshots,1);
+  await timerPage.evaluate(()=>window.dispatchEvent(new Event('online')));
+  assert.equal(versions,1);assert.equal(snapshots,1);
   assert.equal(await timerPage.locator('#accounts').inputValue(),'37');
   await scheduled.close();
+  console.log('PASS: fixed-time schedule and no foreground/online polling');
   // Verify the real service worker can load modules and deep links offline.
   const offline = await browser.newContext();
   const offlinePage = await offline.newPage();
   await offlinePage.goto('http://127.0.0.1:4175');
   await offlinePage.waitForFunction(() => navigator.serviceWorker.controller);
   await offlinePage.waitForFunction(() => document.querySelector('#profitLow').textContent !== '--');
+  await offlinePage.locator('[data-target="buy"]').click();
+  await offlinePage.waitForFunction(() => document.querySelector('#detailLoading').hidden);
   await offline.setOffline(true);
   await offlinePage.goto('http://127.0.0.1:4175/?view=buy&offline-test=1');
   await offlinePage.waitForFunction(() => document.querySelector('#profitLow').textContent !== '--');
   assert.equal(await offlinePage.locator('[data-view=buy]').isVisible(), true);
-  assert.match(await offlinePage.locator('#marketStatus').textContent(),/离线缓存/);
+  assert.match(await offlinePage.locator('#marketStatus').textContent(),/离线.*(缓存|本机)/);
   await offline.close();
+  console.log('PASS: service worker offline deep links');
+  const migration = await browser.newContext({ serviceWorkers: 'block' });
+  const migrationPage = await migration.newPage();
+  await migrationPage.addInitScript(() => {
+    if (!localStorage.getItem('shoucai.settings')) localStorage.setItem('shoucai.settings', JSON.stringify({ accounts: 28, sharedAccounts: 10, userShare: 80 }));
+  });
+  await migrationPage.goto('http://127.0.0.1:4175');
+  await migrationPage.waitForFunction(() => document.querySelector('#profitLow').textContent !== '--');
+  assert.equal(await migrationPage.locator('#accounts').inputValue(), '28');
+  assert.equal(await migrationPage.locator('#sharedAccounts').inputValue(), '10');
+  assert.equal(await migrationPage.locator('#userShare').inputValue(), '80');
+  let repeatDataRequests = 0;
+  migrationPage.on('request', request => { if (/\/data\//.test(request.url())) repeatDataRequests++; });
+  const migrationReloadStart = Date.now();
+  await migrationPage.reload();
+  await migrationPage.waitForFunction(() => document.querySelector('#profitLow').textContent !== '--');
+  assert.ok(Date.now() - migrationReloadStart < 500);
+  assert.equal(repeatDataRequests, 0);
+  await migration.close();
+  console.log('PASS: 28/10/80 migration and cached reload without data requests');
+  const recovery = await browser.newContext({ serviceWorkers: 'block' });
+  const recoveryPage = await recovery.newPage();
+  await recovery.route('**/data/**', route => route.abort());
+  await recoveryPage.goto('http://127.0.0.1:4175');
+  await recoveryPage.waitForFunction(() => document.querySelector('#freshness').textContent === '行情读取失败');
+  await recovery.unroute('**/data/**');
+  await recoveryPage.locator('#refreshMarket').click();
+  await recoveryPage.waitForFunction(() => document.querySelector('#profitLow').textContent !== '--' && !document.querySelector('#refreshMarket').disabled);
+  assert.equal(await recoveryPage.locator('#compactRecipeList article').count(), 4);
+  await recovery.close();
   console.log('PASS: mobile/landscape/desktop, settings, scenarios, adoption, refresh draft preservation, network recovery, persistent harvest undo and offline deep links.');
 } finally { await browser.close(); server.kill(); }
