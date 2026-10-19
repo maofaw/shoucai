@@ -63,6 +63,17 @@ try {
   await view('plans');
   assert.equal(await page.locator('.recipe-card').count(), 4);
   assert.equal(await page.locator('#planDetail .plan-option').count(), 1);
+  await page.locator('[data-change-recipe]').first().click();
+  await page.waitForFunction(() => !document.querySelector('#confirmRecipePicker').disabled);
+  assert.match(await page.locator('#recipePickerPreview').textContent(), /设置账号数后/);
+  const oldAdoption = await page.evaluate(() => localStorage.getItem('shoucai.adoptedPlan'));
+  const pickerOptions = await page.locator('#recipePickerSelect option').count();
+  if (pickerOptions > 1) {
+    await page.locator('#recipePickerSelect').selectOption({ index: 1 });
+    await page.locator('#recipePickerForm').evaluate(form => form.requestSubmit());
+    assert.equal(await page.evaluate(() => localStorage.getItem('shoucai.adoptedPlan')), oldAdoption, 'pending preview must not submit the previous recipe');
+  }
+  await page.locator('#cancelRecipePicker').click();
   await view('home');
   await page.screenshot({ path: 'reports/qa-home.png', fullPage: true });
   await page.evaluate(() => localStorage.setItem('shoucai.lastHarvestFinishedAt', '2026-09-01T00:00:00.000Z'));
@@ -287,5 +298,20 @@ try {
   await recoveryPage.waitForFunction(() => document.querySelector('#profitLow').textContent !== '--' && !document.querySelector('#refreshMarket').disabled);
   assert.equal(await recoveryPage.locator('#compactRecipeList article').count(), 4);
   await recovery.close();
+  const cloud = await browser.newContext({ serviceWorkers: 'block' });
+  let cloudRead;
+  await cloud.route('**/runtime-config.js', route => route.fulfill({ contentType: 'text/javascript', body: "window.SHOUCAI_CONFIG={apiBase:'http://127.0.0.1:4175/fake-api'}" }));
+  await cloud.route('**/fake-api/state', route => { cloudRead = route; });
+  await cloud.route('**/fake-api/state/harvest-finished', route => route.fulfill({ json: { ok: true } }));
+  const cloudPage = await cloud.newPage();
+  await cloudPage.goto('http://127.0.0.1:4175/#manage=test-key');
+  await cloudPage.waitForFunction(() => document.querySelector('#profitLow').textContent !== '--');
+  await cloudPage.locator('#finishHarvest').click();
+  const justRecorded = await cloudPage.evaluate(() => localStorage.getItem('shoucai.lastHarvestFinishedAt'));
+  assert.ok(cloudRead);
+  await cloudRead.fulfill({ json: { state: { lastHarvestFinishedAt: { value: null } } } });
+  await cloudPage.evaluate(() => new Promise(resolve => setTimeout(resolve, 100)));
+  assert.equal(await cloudPage.evaluate(() => localStorage.getItem('shoucai.lastHarvestFinishedAt')), justRecorded);
+  await cloud.close();
   console.log('PASS: mobile/landscape/desktop, settings, scenarios, adoption, refresh draft preservation, network recovery, persistent harvest undo and offline deep links.');
 } finally { await browser.close(); server.kill(); }

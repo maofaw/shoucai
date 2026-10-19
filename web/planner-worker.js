@@ -1,21 +1,26 @@
 import { calculatePlan, migrateSettings, rankCandidates, normalize } from './planner.js';
 import { procurement } from './scenarios.js';
 import { loadMarketSnapshot } from './snapshot-loader.js';
-import { readPersistedMarketSnapshot, persistMarketSnapshot, isUsableMarketSnapshot } from './snapshot-cache.js';
+import { readPersistedMarketSnapshot, persistMarketSnapshot, isUsableMarketSnapshot,
+  isSameMarketVersion, isOlderMarketVersion } from './snapshot-cache.js';
 import { homeSnapshot, computationSignature } from './computed-cache.js';
 
+export function createPlannerEngine({ loadSnapshot = loadMarketSnapshot, readCache = readPersistedMarketSnapshot,
+  persist = persistMarketSnapshot, fetchImpl = fetch } = {}) {
 let snapshot = null;
 let lastComputation = null;
-function sameVersion(a, b) { return a?.builtAt === b?.builtAt && a?.generatedAt === b?.generatedAt; }
 async function readSnapshot(context) {
-  if (snapshot && (!context.version || sameVersion(snapshot, context.version))) return;
-  const cached = await readPersistedMarketSnapshot();
-  if (cached && (!context.version || sameVersion(cached.data, context.version))) snapshot = cached.data;
+  if (snapshot && (!context.version || !isOlderMarketVersion(snapshot, context.version))) return;
+  const cached = await readCache();
+  if (isUsableMarketSnapshot(cached?.data) && (!context.version || !isOlderMarketVersion(cached.data, context.version))) snapshot = cached.data;
   else {
-    const loaded = await loadMarketSnapshot({ signal: AbortSignal.timeout(25_000) });
+    const loaded = await loadSnapshot({ signal: AbortSignal.timeout(25_000) });
     if (!isUsableMarketSnapshot(loaded.data)) throw new Error('行情文件不完整');
+    if (isOlderMarketVersion(loaded.data, context.version) || (snapshot && isOlderMarketVersion(loaded.data, snapshot))) {
+      throw new Error('服务器返回了较旧数据，保留当前行情');
+    }
     snapshot = loaded.data;
-    await persistMarketSnapshot(snapshot);
+    await persist(snapshot);
   }
 }
 function compute(context) {
@@ -38,28 +43,35 @@ function compute(context) {
   return value;
 }
 async function handle(command, context) {
+  if (!['refresh', 'hydrate', 'calculate'].includes(command)) throw new Error('不支持的后台操作');
   if (command === 'refresh') {
+    let version;
     if (context.version) {
-      const marker = await fetch('./data/version.json?v=' + Date.now(), { cache: 'no-store', signal: AbortSignal.timeout(12_000) });
+      const marker = await fetchImpl('./data/version.json?v=' + Date.now(), { cache: 'no-store', signal: AbortSignal.timeout(12_000) });
       if (!marker.ok || marker.headers.get('x-shoucai-offline') === '1') throw new Error('无法联网检查行情');
-      const version = await marker.json();
-      if (sameVersion(version, context.version)) return { unchanged: true };
-      if (Date.parse(version.builtAt) < Date.parse(context.version.builtAt)) throw new Error('服务器返回了较旧数据，保留当前行情');
+      version = await marker.json();
+      if (!Number.isFinite(Date.parse(version.generatedAt)) || !Number.isFinite(Date.parse(version.builtAt ?? version.generatedAt))) throw new Error('行情版本文件不完整');
+      if (isOlderMarketVersion(version, context.version) || (snapshot && isOlderMarketVersion(version, snapshot))) throw new Error('服务器返回了较旧数据，保留当前行情');
+      if (isSameMarketVersion(version, context.version)) return { unchanged: true };
     }
-    const loaded = await loadMarketSnapshot({ signal: AbortSignal.timeout(25_000) });
+    const loaded = await loadSnapshot({ signal: AbortSignal.timeout(25_000) });
     if (loaded.offline) throw new Error('当前使用离线缓存');
     if (!isUsableMarketSnapshot(loaded.data)) throw new Error('行情文件不完整');
-    if (context.version && Date.parse(loaded.data.builtAt) < Date.parse(context.version.builtAt)) throw new Error('服务器返回了较旧数据，保留当前行情');
+    if (isOlderMarketVersion(loaded.data, context.version) || (snapshot && isOlderMarketVersion(loaded.data, snapshot))) throw new Error('服务器返回了较旧数据，保留当前行情');
+    if (version && isOlderMarketVersion(loaded.data, version)) throw new Error('新行情尚未部署完成，请稍后重试');
     snapshot = loaded.data;
-    await persistMarketSnapshot(snapshot);
+    await persist(snapshot);
   } else await readSnapshot(context);
   const computed = compute(context);
   return { ...computed, ...(command === 'hydrate' ? { full: snapshot } : {}) };
 }
+return { handle };
+}
+const engine = createPlannerEngine();
 let queue = Promise.resolve();
-self.onmessage = ({ data: { id, command, payload } }) => {
+if (typeof self !== 'undefined') self.onmessage = ({ data: { id, command, payload } }) => {
   queue = queue.then(async () => {
-    try { self.postMessage({ id, value: await handle(command, payload) }); }
+    try { self.postMessage({ id, value: await engine.handle(command, payload ?? {}) }); }
     catch (error) { self.postMessage({ id, error: error.message || '后台计算失败' }); }
-  });
+  }).catch(() => {});
 };

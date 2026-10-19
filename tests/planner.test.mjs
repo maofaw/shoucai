@@ -62,6 +62,75 @@ test('stock records validate, update and remove without changing other settings'
   record = saveStockedMaterial(record, { name: ' 特种钢 ', unitPrice: 12000, coverageDays: 30 });
   assert.equal(record.items.length, 1); assert.equal(record.items[0].unitPrice, 12000);
   assert.deepEqual(removeStockedMaterial(record, '特种钢').items, []);
+  for (const unitPrice of [null, undefined, '', NaN, -1]) {
+    assert.throws(() => saveStockedMaterial(null, { name: '特种钢', unitPrice, coverageDays: 7 }), /有效的材料价格/);
+  }
+  assert.equal(saveStockedMaterial(null, { name: '特种钢', unitPrice: 0, coverageDays: 7 }).items[0].unitPrice, 0);
+});
+
+function fullHistoryFixture() {
+  const now = new Date('2026-09-27T00:00:00Z');
+  const priceRows = Array.from({ length: 720 }, (_, i) => ({
+    time: marketTime(new Date(now.getTime() - (720 - i) * 3_600_000)),
+    avg: i % 24 < 2 ? 60 : i % 24 < 4 ? 80 : 100,
+    last: i % 24 < 2 ? 60 : i % 24 < 4 ? 80 : 100
+  }));
+  const paired = Array.from({ length: 360 }, (_, i) => ({
+    time: new Date(now.getTime() - (360 - i) * 3_600_000).toISOString(), profit: 100, cost: 100, revenue: 220
+  }));
+  const complete = (id, place, extra = {}) => sample(id, place, {
+    pairedHistoryByRange: { '15d': paired }, materials: [{ name: '材料' + id, count: 1, currentPrice: 100 }], ...extra
+  });
+  const data = dataFor({ workbench: [complete(1, 'workbench')], tech: [complete(2, 'tech', { hours: 16, category: 'gun' })],
+    pharmacy: [complete(3, 'pharmacy')], armory: [complete(4, 'armory')] });
+  data.builtAt = data.generatedAt = now.toISOString(); data.schemaVersion = 5;
+  data.materialHistories = Object.fromEntries([1, 2, 3, 4, 5].map(id => ['材料' + id, priceRows]));
+  return { data, complete };
+}
+
+test('material rankings optimize a portfolio that actually consumes each ranked material', () => {
+  const { data, complete } = fullHistoryFixture();
+  data.candidatePools.workbench[0].pairedHistoryByRange['15d'] = data.candidatePools.workbench[0].pairedHistoryByRange['15d']
+    .map(row => ({ ...row, profit: 200 }));
+  data.candidatePools.workbench.push(complete(5, 'workbench'));
+  const result = calculatePlan(data, migrateSettings({}, defaults));
+  assert.equal(result.plan.comparisons.currentBest.recipes[0].id, 1);
+  const opportunity = result.plan.materialOpportunities.find(row => row.name === '材料5');
+  assert.ok(opportunity, 'A lower ranked product must still be evaluated when it consumes the discounted material');
+  assert.equal(opportunity.plan.recipes[0].id, 5);
+  assert.deepEqual(opportunity.recipes, ['配方5']);
+});
+
+test('long-term opportunity spending uses the displayed repeatable target, not the short-term percentile', () => {
+  const { data } = fullHistoryFixture();
+  const opportunity = calculatePlan(data, migrateSettings({}, defaults)).plan.stableMaterialOpportunities.find(row => row.name === '材料1');
+  assert.ok(opportunity);
+  assert.equal(opportunity.targetPrice, 80);
+  assert.equal(opportunity.estimatedCostPerAccount, opportunity.requiredPerAccount * opportunity.targetPrice);
+});
+
+test('changing allowed hours computes profiles for newly eligible materials on the same market snapshot', () => {
+  const { data, complete } = fullHistoryFixture();
+  data.candidatePools.workbench.push(complete(5, 'workbench', { hours: 7 }));
+  const settings = migrateSettings({}, defaults);
+  calculatePlan(data, settings);
+  settings.stations.workbench.allowedHours = [7];
+  const changed = calculatePlan(data, settings);
+  assert.ok(changed.plan.materialOpportunities.some(row => row.name === '材料5'));
+});
+
+test('excluded adopted recipes keep their actual stock cost until the user changes production', () => {
+  const { data } = fullHistoryFixture();
+  const settings = migrateSettings({}, defaults);
+  const adopted = adoptProposal(calculatePlan(data, settings).proposal);
+  settings.stations.workbench.allowedHours = [7];
+  const before = calculatePlan(data, settings, adopted);
+  const stocked = saveStockedMaterial(null, { name: '材料1', unitPrice: 20, coverageDays: 7 });
+  const after = calculatePlan(data, settings, adopted, stocked);
+  assert.equal(after.plan.recipes[0].id, adopted.recipes[0].id);
+  assert.ok(after.plan.issues.some(issue => issue.includes('不再符合')));
+  assert.ok(after.plan.profit.conservativeWeeklyPerAccount > before.plan.profit.conservativeWeeklyPerAccount);
+  assert.equal(after.plan.stockedMaterials[0].currentPrice, 100);
 });
 
 test('all 4–8 hour accessories compete at actual frequency; mode and allowed hours are respected', () => {

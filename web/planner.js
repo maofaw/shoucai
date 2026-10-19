@@ -126,10 +126,11 @@ export function validStockedMaterials(record) {
 
 export function saveStockedMaterial(record, material, now = new Date()) {
   const current = validStockedMaterials(record);
-  if (!normalize(material?.name) || !(finite(material?.unitPrice) >= 0) || ![7,14,30].includes(Number(material?.coverageDays))) {
+  const unitPrice = finite(material?.unitPrice);
+  if (!normalize(material?.name) || unitPrice == null || unitPrice < 0 || ![7,14,30].includes(Number(material?.coverageDays))) {
     throw new Error('请填写有效的材料价格，并选择7、14或30天。');
   }
-  const item = { name: String(material.name).trim(), key: normalize(material.name), unitPrice: Number(material.unitPrice),
+  const item = { name: String(material.name).trim(), key: normalize(material.name), unitPrice,
     coverageDays: Number(material.coverageDays), confirmedAt: now.toISOString() };
   return { version: 1, items: [...current.items.filter(row => row.key !== item.key), item] };
 }
@@ -208,13 +209,13 @@ function materialCatalog(pools, data, settings) {
   let dataCache = materialProfileCache.get(data);
   if (!dataCache) { dataCache = new Map(); materialProfileCache.set(data, dataCache); }
   let profiles = dataCache.get(cacheKey);
-  if (!profiles) {
-    profiles = new Map([...materials.values()].map(row => [row.key, buildMaterialPriceProfile({
+  if (!profiles) { profiles = new Map(); dataCache.set(cacheKey, profiles); }
+  for (const row of materials.values()) {
+    if (!profiles.has(row.key)) profiles.set(row.key, buildMaterialPriceProfile({
       name: row.name, currentPrice: row.currentPrice, history: histories.get(row.key) ?? [],
       now: new Date(data.builtAt ?? data.generatedAt), minimumSamples: 336, stableSpread: settings.stableSpread / 100,
       pricePercentiles: { days7: settings.buy7 / 100, days14: settings.buy14 / 100, days30: settings.buy30 / 100 }
-    })]));
-    dataCache.set(cacheKey, profiles);
+    }));
   }
   return [...materials.values()].map(row => ({ ...row, recipes: [...row.recipes], ...profiles.get(row.key) }));
 }
@@ -240,8 +241,9 @@ function stockedProfiles(stocked, catalog, horizonDays) {
   }) };
 }
 
-function bestPortfolio(pools, settings, profiles = null, predicate = null) {
+function bestPortfolio(pools, settings, profiles = null, predicate = null, requiredMaterial = null) {
   const selected = [];
+  const eligibleByPlace = new Map();
   for (const place of PLACES) {
     const rows = (pools[place] ?? []).filter(candidate => !predicate || predicate(candidate)).map(candidate => {
       const base = candidate.scenario ?? profitScenario(candidate, settings);
@@ -254,7 +256,22 @@ function bestPortfolio(pools, settings, profiles = null, predicate = null) {
     }).filter(candidate => candidate.scenario?.conservativeWeekly > 0 && candidate.currentProfit > 0)
       .sort((a,b) => b.selectionWeeklyProfit - a.selectionWeeklyProfit || a.id - b.id);
     if (!rows[0]) return [];
+    eligibleByPlace.set(place, rows);
     selected.push(rows[0]);
+  }
+  if (requiredMaterial) {
+    const usesMaterial = candidate => procurement(candidate, settings.scenarioDays ?? 7)?.materials
+      .some(row => normalize(row.name) === requiredMaterial);
+    if (!selected.some(usesMaterial)) {
+      // Constrain the portfolio to actually consume the material being ranked.
+      // Other stations keep their independent best candidate; only one must change.
+      const alternatives = selected.map((current, index) => {
+        const replacement = eligibleByPlace.get(current.place)?.find(usesMaterial);
+        return replacement ? { index, replacement, loss: score(current) - score(replacement) } : null;
+      }).filter(Boolean).sort((a, b) => a.loss - b.loss || a.replacement.id - b.replacement.id);
+      if (!alternatives[0]) return [];
+      selected[alternatives[0].index] = alternatives[0].replacement;
+    }
   }
   return selected;
 }
@@ -367,7 +384,7 @@ function buildOpportunity(profile, pools, settings, currentBest, options = {}) {
   if ((!profile.volatile && !options.allowStable) || resolvedTarget == null) return null;
   const weeklyProfiles = overrideProfiles([{ ...profile, unitPrice: resolvedTarget }], coverageDays, coverageDays);
   const monthlyProfiles = overrideProfiles([{ ...profile, unitPrice: resolvedTarget }], 30, coverageDays);
-  const candidates = bestPortfolio(pools, settings, weeklyProfiles, options.predicate);
+  const candidates = bestPortfolio(pools, settings, weeklyProfiles, options.predicate, profile.key);
   if (candidates.length !== 4) return null;
   let requiredPerAccount = 0;
   const usedBy = [];
@@ -380,7 +397,7 @@ function buildOpportunity(profile, pools, settings, currentBest, options = {}) {
   if (summary.conservativeWeekly == null) return null;
   return { key: profile.key, name: profile.name, currentPrice: profile.currentPrice, targetPrice: Math.min(profile.currentPrice, resolvedTarget),
     coverageDays, sampleCount: profile.sampleCount, priceSpreadPercent: profile.priceSpreadPercent,
-    requiredPerAccount, estimatedCostPerAccount: requiredPerAccount * Math.min(profile.currentPrice, target),
+    requiredPerAccount, estimatedCostPerAccount: requiredPerAccount * Math.min(profile.currentPrice, resolvedTarget),
     recipes: [...new Set(usedBy)], plan: summary,
     improvementWeekly: currentBest.conservativeWeekly == null ? null : summary.conservativeWeekly - currentBest.conservativeWeekly };
 }
@@ -431,7 +448,7 @@ export function calculatePlan(data, settings, savedAdoption = null, savedStocked
     materialFilter: { minimumSamples: 336, maxWeeklyCostShare: settings.stableShare / 100, maxPriceSpread: settings.stableSpread / 100 },
     pricePercentiles: { days7: settings.buy7 / 100, days14: settings.buy14 / 100, days30: settings.buy30 / 100 }
   });
-  const catalog = materialCatalog(pools, data, settings);
+  const catalog = materialCatalog({ ...pools, adopted: activeCandidates }, data, settings);
   const now = new Date(data.builtAt ?? data.generatedAt);
   const historiesByKey = new Map(Object.entries(data.materialHistories ?? {}).map(([name, rows]) => [normalize(name), rows]));
   const stabilityCatalog = catalog.map(row => ({ ...row, stability: materialStability(row.name, row.currentPrice,

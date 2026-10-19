@@ -10,6 +10,7 @@ function openDatabase(indexedDBImpl) {
     };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error || new Error('无法打开行情缓存'));
+    request.onblocked = () => reject(new Error('行情缓存暂被其他页面占用'));
   });
 }
 
@@ -35,6 +36,20 @@ export function isUsableMarketSnapshot(data) {
     && ['workbench', 'tech', 'pharmacy', 'armory'].every(place => Array.isArray(data.candidatePools[place])));
 }
 
+export function isSameMarketVersion(a, b) {
+  return Boolean(a && b && (a.builtAt ?? a.generatedAt) === (b.builtAt ?? b.generatedAt) && a.generatedAt === b.generatedAt);
+}
+
+// Reject a fresh build of older source data as well as an older build of the same data.
+export function isOlderMarketVersion(candidate, current) {
+  if (!current) return false;
+  return ['generatedAt', 'builtAt'].some(key => {
+    const field = key === 'builtAt' ? value => value.builtAt ?? value.generatedAt : value => value.generatedAt;
+    const incoming = Date.parse(field(candidate ?? {})), previous = Date.parse(field(current));
+    return !Number.isFinite(incoming) || (Number.isFinite(previous) && incoming < previous);
+  });
+}
+
 export async function readPersistedMarketSnapshot(options = {}) {
   const indexedDBImpl = options.indexedDBImpl ?? globalThis.indexedDB;
   if (!indexedDBImpl) return null;
@@ -58,9 +73,18 @@ export async function persistMarketSnapshot(data, options = {}) {
   try {
     database = await openDatabase(indexedDBImpl);
     const transaction = database.transaction(STORE, 'readwrite');
-    transaction.objectStore(STORE).put({ data, savedAt: Date.now() }, KEY);
-    await transactionDone(transaction);
-    return true;
+    const done = transactionDone(transaction);
+    const objectStore = transaction.objectStore(STORE);
+    let saved = false;
+    // Read and write in one transaction: a slow, older tab must not replace newer data.
+    const existing = objectStore.get(KEY);
+    existing.onsuccess = () => {
+      if (isUsableMarketSnapshot(existing.result?.data) && isOlderMarketVersion(data, existing.result.data)) return;
+      objectStore.put({ data, savedAt: Date.now() }, KEY);
+      saved = true;
+    };
+    await done;
+    return saved;
   } catch {
     return false;
   } finally {

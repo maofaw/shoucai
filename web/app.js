@@ -4,9 +4,10 @@ import { migrateSettings, rankCandidates, sortMaterials as orderMaterials, norma
   adoptProposal, adoptRecipe, adoptPlanSummary } from './planner.js';
 import { recordHarvest, revertHarvest, pendingUndo, serialQueue } from './harvest.js';
 import { createMarketRefresher } from './market-refresh.js';
-import { computationSignature, homeSnapshot, readComputedResult, writeComputedResult } from './computed-cache.js';
+import { computationSignature, homeSnapshot, readComputedResult, writeComputedResult, isUsableComputedResult } from './computed-cache.js';
 import { createPlannerClient } from './planner-client.js';
 import { scheduleMarketChecks } from './refresh-schedule.js';
+import { acceptsComputation, applyRemoteTimes, readAdminKey } from './app-state.js';
 
 const state = {
   data: null,
@@ -16,8 +17,8 @@ const state = {
   stocked: validStockedMaterials(loadJson(STOCK_KEY, null)),
   proposal: null,
   refresher: null,
-  admin: location.hash.startsWith('#manage='),
-  adminKey: location.hash.startsWith('#manage=') ? decodeURIComponent(location.hash.slice('#manage='.length)) : '',
+  admin: Boolean(readAdminKey(location.hash)),
+  adminKey: readAdminKey(location.hash),
   apiBase: String(window.SHOUCAI_CONFIG?.apiBase ?? '').replace(/\/$/, ''),
   countdownTimer: null,
   undoTimer: null,
@@ -26,7 +27,8 @@ const state = {
   stockEditor: null,
   showAllOpportunities: false,
   selectedPlanType: 'current',
-  profitPeriod: loadJson('shoucai.uiPreferences', null)?.profitPeriod ?? 'month',
+  profitPeriod: ['day', 'week', 'month'].includes(loadJson('shoucai.uiPreferences', null)?.profitPeriod)
+    ? loadJson('shoucai.uiPreferences', null).profitPeriod : 'month',
   lazy: validLazyState(loadJson('shoucai.lazyMode', null)),
   lastStablePlan: loadJson('shoucai.lastStablePlan', null)
 };
@@ -37,6 +39,7 @@ let hydration = null;
 let settingsInitialized = false;
 let stationSettingsInitialized = false;
 let marketScheduleStarted = false;
+let timeRevision = 0;
 const WARM_HOME_KEY = 'shoucai.warmHome';
 
 const nf = new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 0 });
@@ -76,7 +79,7 @@ async function init() {
         const response = await fetch('./data/bootstrap.json', { signal: AbortSignal.timeout(15_000) });
         if (!response.ok) throw new Error('首页初始化文件暂不可用');
         const data = await response.json();
-        if (data.computedVersion !== 1 || !data.plan?.profit || !data.defaults?.placeRules) throw new Error('首页初始化数据不完整');
+        if (!isUsableComputedResult(data)) throw new Error('首页初始化数据不完整');
         applyComputed({ compact: data, settings: data.settings });
       } catch { await ensureFullData(); }
     }
@@ -89,12 +92,12 @@ async function init() {
 
 function configureMarketRefresher() {
   state.refresher = createMarketRefresher({ load: async () => {
-    const context = currentContext(), signature = computationSignature(context);
-    const computed = await planner.request('refresh', context);
+    let context = currentContext();
+    let computed = await planner.request('refresh', context);
     if (computed.unchanged) return { data: state.data, offline: false };
-    if (signature !== computationSignature(currentContext())) {
-      const revised = await planner.request('calculate', currentContext());
-      return { data: { ...revised.compact, workerResult: revised }, offline: false };
+    while (!acceptsComputation(context, currentContext(), computed)) {
+      context = currentContext();
+      computed = await planner.request('calculate', context);
     }
     return { data: { ...computed.compact, workerResult: computed }, offline: false };
   }, onData: async data => {
@@ -112,6 +115,7 @@ function currentContext() {
     version: state.data ? { builtAt: state.data.builtAt, generatedAt: state.data.generatedAt } : null };
 }
 function applyComputed(computed) {
+  const draft = stationSettingsInitialized ? readSettingsForm(false) : null;
   state.settings = computed.settings;
   state.data = computed.full ? { ...computed.full, lazyDemand: computed.compact.lazyDemand } : { ...computed.compact };
   state.proposal = computed.result?.proposal ?? computed.compact.proposal;
@@ -120,8 +124,11 @@ function applyComputed(computed) {
     document.querySelector('#scenarioDays').value = state.settings.scenarioDays;
     settingsInitialized = true;
   }
-  if (computed.full && !stationSettingsInitialized) {
+  if (computed.full) {
+    const saved = state.settings;
+    if (draft) state.settings = draft;
     buildStationSettings();
+    state.settings = saved;
     stationSettingsInitialized = true;
   }
   renderAll(computed.result ?? { plan: computed.compact.plan, buyPlan: computed.compact.buyPlan,
@@ -145,7 +152,10 @@ async function ensureFullData() {
   hydration = (async () => {
     let context = currentContext();
     let computed = await planner.request('hydrate', context);
-    if (computationSignature(context) !== computationSignature(currentContext())) computed = await planner.request('hydrate', currentContext());
+    while (!acceptsComputation(context, currentContext(), computed)) {
+      context = currentContext();
+      computed = await planner.request('hydrate', context);
+    }
     applyComputed(computed);
     document.querySelector('#detailLoading').hidden = true;
   })().catch(error => {
@@ -159,10 +169,21 @@ async function recalculate() {
   document.body.dataset.calculating = 'true';
   setText('#marketStatus', '正在后台计算，不影响当前查看');
   try {
-    const computed = await planner.request('calculate', currentContext());
+    let context = currentContext();
+    let computed = await planner.request('calculate', context);
     if (revision !== calculationRevision) return;
+    while (!acceptsComputation(context, currentContext(), computed)) {
+      context = currentContext();
+      computed = await planner.request('calculate', context);
+      if (revision !== calculationRevision) return;
+    }
     const full = state.data?.candidatePools ? state.data : null;
     applyComputed({ ...computed, ...(full && full.builtAt === computed.compact.builtAt ? { full } : {}) });
+    if (state.recipePicker) void updateRecipePickerPreview();
+    if (state.planPreview) {
+      closePlanPreview();
+      showToast('方案依据已变化，请重新预览后采用');
+    }
     setText('#marketStatus', '已按当前设置重新计算 · 行情更新于' + formatDateTime(state.data.generatedAt));
   } catch (error) {
     setText('#marketStatus', '计算失败，已保留上次结果：' + error.message);
@@ -279,7 +300,7 @@ function recomputeLocalPlan(result = null) {
   state.data.plan = result.plan;
   if (result.plan.marketRegime?.status === 'normal' && result.plan.stablePlan?.canAdopt) {
     state.lastStablePlan = result.plan.stablePlan;
-    localStorage.setItem('shoucai.lastStablePlan', JSON.stringify(state.lastStablePlan));
+    try { localStorage.setItem('shoucai.lastStablePlan', JSON.stringify(state.lastStablePlan)); } catch { /* Optional cache; rendering must still work. */ }
   } else if (result.plan.marketRegime?.status === 'suspicious' && state.lastStablePlan?.canAdopt) {
     state.data.plan.stablePlan = { ...state.lastStablePlan, readOnly: true };
     state.data.plan.comparisons.stablePlan = state.data.plan.stablePlan;
@@ -406,7 +427,8 @@ function renderRecipes() {
 
 async function openRecipePicker(place, requestedId = null) {
   try { await ensureFullData(); } catch { return; }
-  const candidates = rankCandidates(state.data, state.settings, place);
+  const stableIds = new Set((state.data.plan?.stabilityEvidence?.products?.[place] ?? []).filter(row => row.stable).map(row => row.id));
+  const candidates = rankCandidates(state.data, state.settings, place).filter(row => !state.lazy.enabled || stableIds.has(row.id));
   if (!candidates.length) {
     showToast('当前允许时长内没有可选配方，请先调整设置。');
     return;
@@ -435,28 +457,36 @@ async function updateRecipePickerPreview() {
   const preview = document.querySelector('#recipePickerPreview');
   const error = document.querySelector('#recipePickerError');
   const requestId = picker.previewRevision = (picker.previewRevision ?? 0) + 1;
+  picker.record = null; picker.result = null;
   document.querySelector('#confirmRecipePicker').disabled = true;
   preview.textContent = '正在后台计算这套配方…';
   try {
     const record = adoptRecipe(state.adoption, state.proposal, picker.place, candidate);
-    const { result } = await planner.request('calculate', { ...currentContext(), adoption: record });
+    const context = currentContext();
+    const { result } = await planner.request('calculate', { ...context, adoption: record });
     if (state.recipePicker !== picker || picker.previewRevision !== requestId) return;
+    if (computationSignature(context) !== computationSignature(currentContext())
+      || context.version?.builtAt !== state.data.builtAt || context.version?.generatedAt !== state.data.generatedAt) {
+      void updateRecipePickerPreview(); return;
+    }
+    picker.context = context;
     picker.record = record; picker.result = result;
     const factor = state.settings.accounts - state.settings.sharedAccounts + state.settings.sharedAccounts * state.settings.userShare / 100;
     const oldWeekly = numberOrNull(state.data.plan?.profit?.conservativeWeeklyPerAccount);
     const newWeekly = numberOrNull(result.plan?.profit?.conservativeWeeklyPerAccount);
-    const delta = oldWeekly == null || newWeekly == null ? null : (newWeekly - oldWeekly) * factor;
+    const delta = oldWeekly == null || newWeekly == null || state.settings.accounts <= 0 ? null : (newWeekly - oldWeekly) * factor;
     const oldMaterials = new Set((state.data.buyPlan?.materials ?? []).filter(row => !row.watchOnly).map(row => row.name));
     const newMaterials = new Set((result.buyPlan?.materials ?? []).filter(row => !row.watchOnly).map(row => row.name));
     const added = [...newMaterials].filter(name => !oldMaterials.has(name));
     const removed = [...oldMaterials].filter(name => !newMaterials.has(name));
     preview.innerHTML = '<div class="recipe-picker__selected"><span>选择后本台制造</span><strong>' + escapeHtml(candidate.name) + '</strong><small>' + candidate.hours + '小时/轮 · 每周按' + candidate.runsPerWeek + '轮计算</small></div>' +
-      '<div class="recipe-picker__metrics"><div><span>单号周保守</span><strong>' + moneyWan(candidate.selectionWeeklyProfit) + '</strong></div><div><span>全部账号到手变化</span><strong class="' + (delta != null && delta < 0 ? 'is-down' : '') + '">' + (delta == null ? '待更新' : (delta >= 0 ? '+' : '') + moneyWan(delta)) + '</strong></div></div>' +
-      '<p>' + (delta == null ? '情景数据齐全后才能显示人民币变化。' : '折合每周约 ' + (delta >= 0 ? '+' : '') + nf.format(delta / (state.settings.rate * 10_000)) + ' 元。') + '</p>' +
+      '<div class="recipe-picker__metrics"><div><span>单号周保守</span><strong>' + moneyWan(candidate.selectionWeeklyProfit) + '</strong></div><div><span>全部账号到手变化</span><strong class="' + (delta != null && delta < 0 ? 'is-down' : '') + '">' + (state.settings.accounts <= 0 ? '设置账号数后计算' : delta == null ? '待更新' : (delta >= 0 ? '+' : '') + moneyWan(delta)) + '</strong></div></div>' +
+      '<p>' + (state.settings.accounts <= 0 ? '设置账号数后显示全部账号及人民币变化。' : delta == null ? '情景数据齐全后才能显示人民币变化。' : '折合每周约 ' + (delta >= 0 ? '+' : '') + nf.format(delta / (state.settings.rate * 10_000)) + ' 元。') + '</p>' +
       '<p>新增材料：' + escapeHtml(added.join('、') || '无') + '；不再需要：' + escapeHtml(removed.join('、') || '无') + '。确认后会重新计算相同材料的数量。</p>';
     error.hidden = true;
     document.querySelector('#confirmRecipePicker').disabled = false;
   } catch (failure) {
+    if (state.recipePicker !== picker || picker.previewRevision !== requestId) return;
     picker.record = null; picker.result = null;
     preview.innerHTML = '';
     error.textContent = failure.message; error.hidden = false;
@@ -470,7 +500,9 @@ function closeRecipePicker() {
   state.recipePicker = null;
 }
 
-function openPlanPreview(summary, title) {
+function openPlanPreview(summary, title, { stable = false } = {}) {
+  if (state.lazy.enabled) return showToast('懒人模式只采用稳定现买方案；请先关闭懒人模式，再采用进阶方案。');
+  if (summary?.readOnly || (stable && state.data.plan?.marketRegime?.status === 'suspicious')) return showToast('行情异常，长期方案暂缓采用');
   if (!summary?.canAdopt) return showToast('这套方案数据还不完整，暂时不能采用');
   const labels = state.data.defaults?.placeRules ?? {};
   const current = state.data.plan?.comparisons?.current;
@@ -483,6 +515,7 @@ function openPlanPreview(summary, title) {
     '<div class="recipe-picker__metrics"><div><span>保守周利润</span><strong>' + profitDisplay(summary.conservativeWeekly) + '</strong></div><div><span>较高30天</span><strong>' + profitDisplay(summary.highMonthly) + '</strong></div></div>' +
     '<p>相比当前方案，单号保守周利润 ' + (delta == null ? '待更新' : (delta >= 0 ? '+' : '') + moneyWan(delta)) + '。</p><p>新增材料：' + escapeHtml(added.join('、') || '无') + '；不再需要：' + escapeHtml(removed.join('、') || '无') + '。</p>';
   state.planPreview = summary;
+  state.planPreviewContext = { context: currentContext(), stable };
   document.querySelector('#planPreviewDialog').showModal();
 }
 
@@ -490,6 +523,7 @@ function closePlanPreview() {
   const dialog = document.querySelector('#planPreviewDialog');
   if (dialog.open) dialog.close();
   state.planPreview = null;
+  state.planPreviewContext = null;
 }
 
 function openStockDialog(name, price, days) {
@@ -531,6 +565,7 @@ function renderProfit() {
   const profit = state.data.plan?.profit || {};
   const factor = state.settings.accounts - state.settings.sharedAccounts + state.settings.sharedAccounts * state.settings.userShare / 100;
   const configured = state.settings.accounts > 0;
+  document.body.dataset.accountsConfigured = String(configured);
   const weeklyLow = numberOrNull(profit.conservativeWeeklyPerAccount ?? profit.noStockWeeklyPerAccount);
   const weeklyHigh = numberOrNull(profit.highWeeklyPerAccount);
   const monthlyLow = numberOrNull(profit.conservativeMonthlyPerAccount) ?? (weeklyLow == null ? null : weeklyLow * 30 / 7);
@@ -545,6 +580,8 @@ function renderProfit() {
     month: { label: '月', low: monthlyLow, high: monthlyHigh, hint: '按日均折算30天' }
   };
   const selected = periods[state.profitPeriod] ?? periods.month;
+  document.querySelector('#profitLow').classList.toggle('is-message', !configured || selected.low == null);
+  document.querySelector('#profitHigh').classList.toggle('is-message', !configured || selected.high == null);
   document.querySelectorAll('[data-profit-period]').forEach(button => {
     const active = button.dataset.profitPeriod === state.profitPeriod;
     button.classList.toggle('is-active', active); button.setAttribute('aria-pressed', String(active));
@@ -590,7 +627,7 @@ function renderPlans() {
   const comparisons = state.data.plan?.comparisons ?? {};
   const regime = state.data.plan?.marketRegime;
   const suspicious = regime?.status === 'suspicious';
-  document.querySelector('#marketRegime').innerHTML = '<strong>' + (suspicious ? '长期方案暂缓采用' : '长期行情状态正常') + '</strong><p>' + escapeHtml(regime?.reason || '稳定性证据正在计算') + '</p>';
+  document.querySelector('#marketRegime').innerHTML = '<strong>' + (suspicious ? '长期方案暂缓采用' : regime?.status === 'normal' ? '长期行情状态正常' : '正在读取长期行情依据') + '</strong><p>' + escapeHtml(regime?.reason || '详细行情加载后展示稳定性结果') + '</p>';
   document.querySelector('#marketRegime').classList.toggle('is-warning', suspicious);
   document.querySelectorAll('[data-plan-type]').forEach(button => {
     const active = button.dataset.planType === state.selectedPlanType;
@@ -604,13 +641,19 @@ function renderPlans() {
     stablePlan: ['长期稳屯', suspicious ? '上次稳定方案' : '30天验证', comparisons.stablePlan, suspicious ? '近72小时行情异常，暂时只读展示上一次通过验证的稳定方案。' : '只使用低价在至少3周重复出现、且前后两段成品利润稳定的候选。', true, suspicious]
   };
   const [title, badge, summary, note, adoptable, blocked] = entries[state.selectedPlanType] ?? entries.current;
-  document.querySelector('#planDetail').innerHTML = planCard(state.selectedPlanType, title, badge, summary, note, adoptable, blocked);
+  document.querySelector('#planDetail').innerHTML = !state.data.candidatePools && !summary?.recipes?.length
+    ? '<p class="empty-state">正在读取详细方案，请稍候…</p>'
+    : planCard(state.selectedPlanType, title, badge, summary, note, adoptable, blocked);
   document.querySelector('#scenarioDaysRow').hidden = !['lowBest', 'stablePlan'].includes(state.selectedPlanType);
   document.querySelector('#currentRecipeDetails').hidden = state.selectedPlanType !== 'current';
   document.querySelector('#proposalCard').hidden = state.selectedPlanType !== 'current';
 }
 
 function renderOpportunities() {
+  if (!state.data?.candidatePools) {
+    for (const selector of ['#opportunityList', '#stableOpportunityList']) document.querySelector(selector).innerHTML = '<p class="empty-state">正在读取材料行情，请稍候…</p>';
+    return;
+  }
   const rows = state.data.plan?.materialOpportunities ?? [];
   const visible = state.showAllOpportunities ? rows : rows.slice(0, 5);
   const factor = state.settings.accounts - state.settings.sharedAccounts + state.settings.sharedAccounts * state.settings.userShare / 100;
@@ -673,6 +716,10 @@ function renderBuyShortcut() {
 }
 
 function renderBuys() {
+  if (!state.data?.candidatePools) {
+    document.querySelector('#buyList').innerHTML = '<p class="empty-state">正在读取详细采购数量，请稍候…</p>';
+    return;
+  }
   const plan = state.data.buyPlan;
   const timing = document.querySelector('#buyTiming');
   const now = document.querySelector('#buyNow');
@@ -895,7 +942,7 @@ function bindActions() {
   }));
   document.querySelector('#adoptPlan').addEventListener('click', async () => {
     try {
-      const record = adoptProposal(state.proposal);
+      const record = state.lazy.enabled ? adoptPlanSummary(state.data.plan?.lazyPlan?.recommended) : adoptProposal(state.proposal);
       localStorage.setItem(ADOPTION_KEY, JSON.stringify(record));
       state.adoption = record; await renderAll();
       showToast('已采用，利润和采购清单已切换；收菜时间未改变');
@@ -912,7 +959,11 @@ function bindActions() {
   document.querySelector('#recipePickerForm').addEventListener('submit', async event => {
     event.preventDefault();
     const record = state.recipePicker?.record;
-    if (!record) return;
+    if (!record || document.querySelector('#confirmRecipePicker').disabled) return;
+    if (computationSignature(state.recipePicker.context) !== computationSignature(currentContext())
+      || state.recipePicker.context.version?.builtAt !== state.data.builtAt) {
+      void updateRecipePickerPreview(); return;
+    }
     try {
       localStorage.setItem(ADOPTION_KEY, JSON.stringify(record));
       state.adoption = record;
@@ -927,14 +978,14 @@ function bindActions() {
     const summary = state.data.plan?.comparisons?.[button.dataset.previewPlan];
     if (button.dataset.previewPlan === 'stablePlan' && state.data.plan?.marketRegime?.status === 'suspicious') return showToast('近72小时行情异常，长期稳屯方案暂缓采用');
     const titles = { lowBest: '短期低价最优方案', stablePlan: '长期稳屯方案', currentBest: '现价买料最优方案' };
-    openPlanPreview(summary, titles[button.dataset.previewPlan] ?? '制造方案');
+    openPlanPreview(summary, titles[button.dataset.previewPlan] ?? '制造方案', { stable: button.dataset.previewPlan === 'stablePlan' });
   });
   document.querySelectorAll('#opportunityList, #stableOpportunityList').forEach(list => list.addEventListener('click', event => {
     const preview = event.target.closest('[data-preview-opportunity]');
     if (preview) {
       const source = preview.dataset.stableOpportunity ? state.data.plan?.stableMaterialOpportunities : state.data.plan?.materialOpportunities;
       const item = (source ?? []).find(row => row.key === preview.dataset.previewOpportunity);
-      if (item) openPlanPreview(item.plan, '囤“' + item.name + '”后的最佳方案');
+      if (item) openPlanPreview(item.plan, '囤“' + item.name + '”后的最佳方案', { stable: Boolean(preview.dataset.stableOpportunity) });
       return;
     }
     const stock = event.target.closest('[data-stock-material]');
@@ -958,6 +1009,7 @@ function bindActions() {
     if (stock) openStockDialog(stock.dataset.stockMaterial, Number(stock.dataset.stockPrice), Number(stock.dataset.stockDays));
   });
   document.querySelector('#stockedList').addEventListener('click', async event => {
+    try {
     const edit = event.target.closest('[data-stock-material]');
     if (edit) return openStockDialog(edit.dataset.stockMaterial, Number(edit.dataset.stockPrice), Number(edit.dataset.stockDays));
     const remove = event.target.closest('[data-remove-stock]');
@@ -965,6 +1017,7 @@ function bindActions() {
     state.stocked = removeStockedMaterial(state.stocked, remove.dataset.removeStock);
     localStorage.setItem(STOCK_KEY, JSON.stringify(state.stocked));
     await renderAll(); showToast('已删除囤货记录，利润已按现价重算');
+    } catch (error) { showToast('删除后重算失败：' + error.message); }
   });
   document.querySelector('#toggleOpportunities').addEventListener('click', () => { state.showAllOpportunities = !state.showAllOpportunities; renderOpportunities(); });
   document.querySelector('#closePlanPreview').addEventListener('click', closePlanPreview);
@@ -973,6 +1026,12 @@ function bindActions() {
   document.querySelector('#planPreviewForm').addEventListener('submit', async event => {
     event.preventDefault();
     try {
+      const preview = state.planPreviewContext;
+      if (!preview || computationSignature(preview.context) !== computationSignature(currentContext())
+        || preview.context.version?.builtAt !== state.data.builtAt
+        || (preview.stable && state.data.plan?.marketRegime?.status === 'suspicious')) {
+        closePlanPreview(); throw new Error('行情或设置已变化，请重新预览后采用。');
+      }
       const record = adoptPlanSummary(state.planPreview);
       localStorage.setItem(ADOPTION_KEY, JSON.stringify(record));
       state.adoption = record; closePlanPreview(); await renderAll();
@@ -1023,6 +1082,7 @@ function bindActions() {
     event.preventDefault();
     const error = document.querySelector('#settingsError');
     try {
+      if (!state.data?.candidatePools) throw new Error('详细行情尚未加载，请先点击“刷新行情”重试。');
       const next = readSettingsForm();
       localStorage.setItem('shoucai.settings', JSON.stringify(next));
       state.settings = next;
@@ -1039,6 +1099,7 @@ function bindActions() {
   document.querySelector('#finishHarvest').addEventListener('click', async event => {
     const at = new Date().toISOString();
     try { recordHarvest(localStorage, at); } catch (error) { showToast(error.message); return; }
+    timeRevision++;
     renderHarvest();
     restoreUndoNotice();
     if (state.admin) await saveRemoteState('/state/harvest-finished', at, event.currentTarget);
@@ -1058,6 +1119,7 @@ function bindActions() {
     if (Number.isNaN(date.getTime()) || date.getTime() > Date.now()) { error.textContent = '请选择有效且不晚于现在的完成时间。'; error.hidden = false; return; }
     const at = date.toISOString();
     try { recordHarvest(localStorage, at); } catch (failure) { error.textContent = failure.message; error.hidden = false; return; }
+    timeRevision++;
     error.hidden = true; event.currentTarget.hidden = true; renderHarvest();
     restoreUndoNotice(); if (state.admin) await saveRemoteState('/state/harvest-finished', at, document.querySelector('#editHarvest'));
   });
@@ -1072,6 +1134,7 @@ function bindActions() {
   document.querySelector('#finishSell').addEventListener('click', async event => {
     const at = new Date().toISOString();
     localStorage.setItem('shoucai.lastSellFinishedAt', at);
+    timeRevision++;
     showToast('已记录清仓完成');
     await saveRemoteState('/state/sell-finished', at, event.currentTarget);
   });
@@ -1198,6 +1261,7 @@ function updateShortRunsHint(rawValue) {
 async function undoHarvest() {
   let value;
   try { value = revertHarvest(localStorage); } catch (error) { showToast(error.message); return; }
+  timeRevision++;
   renderHarvest(); showToast('已撤销本次记录');
   if (state.admin) await saveRemoteState('/state/harvest-finished', value, document.querySelector('#editHarvest'));
 }
@@ -1210,14 +1274,13 @@ function restoreUndoNotice() {
 async function loadRemoteState() {
   if (!state.apiBase || !state.admin || localStorage.getItem('shoucai.pendingRemote') || pendingUndo(localStorage)) return;
   try {
+    const revision = timeRevision;
+    const before = Object.fromEntries(['shoucai.lastHarvestFinishedAt', 'shoucai.lastSellFinishedAt']
+      .map(key => [key, localStorage.getItem(key)]));
     const response = await fetch(state.apiBase + '/state', { cache: 'no-store', signal: AbortSignal.timeout(10_000) });
     if (!response.ok) return;
     const payload = await response.json();
-    const harvest = payload.state?.lastHarvestFinishedAt?.value;
-    const sell = payload.state?.lastSellFinishedAt?.value;
-    if (harvest && Number.isFinite(new Date(harvest).getTime())) localStorage.setItem('shoucai.lastHarvestFinishedAt', harvest);
-    else if (payload.state) localStorage.removeItem('shoucai.lastHarvestFinishedAt');
-    if (sell) localStorage.setItem('shoucai.lastSellFinishedAt', sell);
+    if (revision === timeRevision && !localStorage.getItem('shoucai.pendingRemote')) applyRemoteTimes(localStorage, payload, before);
   } catch {
     // 云端暂不可用时仍可用当前浏览器保存的时间。
   }
