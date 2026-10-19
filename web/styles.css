@@ -8,8 +8,8 @@
   --text: #f4f7fb;
   --muted: #aebbd0;
   --faint: #8d9db4;
-  --primary: #5ba7ff;
-  --primary-strong: #8ac2ff;
+  --primary: #85d6bb;
+  --primary-strong: #a3e2cd;
   --success: #60d6a7;
   --warning: #ffc766;
   --danger: #ff7e87;
@@ -20,7 +20,7 @@
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 html { background: var(--bg); font-family: Inter, "Microsoft YaHei", system-ui, sans-serif; scrollbar-gutter: stable; }
-body { margin: 0; min-width: 320px; min-height: 100dvh; background: radial-gradient(circle at 50% -15%, #162b42 0, var(--bg) 34rem); color: var(--text); line-height: 1.5; }
+body { margin: 0; min-width: 320px; min-height: 100dvh; background: var(--bg); color: var(--text); line-height: 1.5; }
 button, input { font: inherit; }
 button { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
 a { color: inherit; }
@@ -447,6 +447,64 @@ body:has(.recipe-picker[open]) { overflow: hidden; }
 #detailLoading { margin: 8px auto 12px; max-width: 1080px; padding: 12px 16px; border-left: 3px solid var(--primary); background: var(--surface); overflow-wrap: anywhere; }
 .refresh-strip > span { overflow-wrap: anywhere; min-width: 0; }
 .recipe-picker { max-height: calc(100dvh - 32px); overflow-y: auto; }
+
+/* Overview layout: quiet surfaces, one clear action, secondary detail on demand. */
+.app-header h1 { font-size: 20px; font-weight: 650; }
+.app-header .eyebrow { display: none; }
+.refresh-strip { opacity: .9; font-size: 12px; }
+.view[data-view="home"] > .section-heading { margin-bottom: 16px; }
+.view[data-view="home"] #home-title { font-size: 18px; font-weight: 600; }
+.view[data-view="home"] #homeModeNote { margin: 6px 0 0; font-size: 12px; }
+.profit-card, .recipe-card, .sell-card, .settings-card, .material-card { box-shadow: none; }
+.profit-card--accent { background: var(--surface); border-color: transparent; }
+.profit-card { min-height: 130px; }
+.profit-card__value { letter-spacing: -.03em; }
+.profit-details { margin: 8px 0 16px; }
+.profit-details > summary { min-height: 44px; align-content: center; color: var(--muted); }
+.harvest-card { margin-top: 4px; box-shadow: none; border-color: transparent; }
+.harvest-card .card-icon { display: none; }
+.harvest-card { grid-template-columns: minmax(0,1fr) auto; }
+.harvest-copy { min-width: 0; }
+.harvest-actions { grid-column: auto; }
+.harvest-edit { grid-column: 1 / -1; }
+.weekly-agenda { margin: 24px 0 0; padding-bottom: 22px; border-bottom: 1px solid var(--border); }
+.weekly-agenda h2 { font-size: 16px; font-weight: 600; }
+.weekly-agenda__grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 20px; margin: 16px 0 12px; }
+.weekly-agenda__grid span, .weekly-agenda__grid strong { display: block; }
+.weekly-agenda__grid span, .weekly-agenda > small { font-size: 12px; color: var(--muted); }
+.weekly-agenda__grid strong { margin-top: 5px; font-size: 15px; font-weight: 550; overflow-wrap: anywhere; }
+.home-recipes { border-bottom: 1px solid var(--border); }
+.home-recipes > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 62px; cursor: pointer; font-weight: 600; }
+.home-recipes > summary span { color: var(--muted); font-size: 12px; font-weight: 400; }
+.home-recipes .section-heading h2 { font-size: 16px; }
+.home-recipes .compact-recipes { margin-bottom: 16px; }
+.buy-shortcut { background: transparent; border: 0; box-shadow: none; padding: 16px 0; margin-top: 0; }
+.buy-shortcut__icon { display: none; }
+.mode-card { border: 0; background: transparent; padding: 14px 0; margin: 6px 0; border-top: 1px solid var(--border); }
+.mode-card strong { font-size: 14px; font-weight: 550; }
+.material-card { border-color: var(--border); background: var(--surface); }
+.material-quantity > summary, .buy-reference > summary { min-height: 44px; align-content: center; color: var(--muted); cursor: pointer; font-size: 13px; }
+.material-card > .material-head { min-height: 52px; cursor: pointer; gap: 10px; }
+.material-card > .material-head strong { font-size: 15px; font-weight: 550; }
+.material-card > .material-head::after { content: '+'; color: var(--muted); }
+.material-card[open] > .material-head::after { content: '−'; }
+.material-card > .material-head::-webkit-details-marker { display: none; }
+.material-ceiling { margin-left: auto; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.material-body { padding-top: 12px; border-top: 1px solid var(--border); }
+.material-group .material-card { padding-top: 0; padding-bottom: 0; }
+.material-group .material-card[open] { padding-bottom: 14px; }
+.account-setup { padding: 14px; box-shadow: none; }
+.account-setup p { font-size: 12px; }
+.account-setup .primary-button { min-height: 44px; }
+@media (max-width: 480px) {
+  .app-header { padding-left: 18px; padding-right: 18px; }
+  .content { padding-left: 18px; padding-right: 18px; }
+  .weekly-agenda__grid { grid-template-columns: 1fr; gap: 16px; }
+  .harvest-copy strong { font-size: 21px; }
+  .harvest-actions .primary-button { padding-left: 12px; padding-right: 12px; }
+  .profit-card { padding: 14px 12px; }
+  .profit-card__hint { font-size: 12px; }
+}
 
 @media (min-width: 680px) {
   .compact-recipes { grid-template-columns: repeat(2,minmax(0,1fr)); }

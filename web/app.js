@@ -159,7 +159,7 @@ async function ensureFullData() {
     applyComputed(computed);
     document.querySelector('#detailLoading').hidden = true;
   })().catch(error => {
-    setText('#detailLoading', '详细行情暂不可用：' + error.message + '。可点击“刷新行情”重试。');
+    setText('#detailLoading', '详细行情暂不可用：' + error.message + '。请检查网络后重新打开页面。');
     throw error;
   }).finally(() => { hydration = null; document.querySelector('#settingsForm').inert = false; });
   return hydration;
@@ -311,16 +311,15 @@ function recomputeLocalPlan(result = null) {
 }
 
 function renderRefreshStatus(status) {
-  document.querySelector('#refreshMarket').disabled = status.checking;
-  document.querySelector('#refreshMarket').textContent = status.checking ? '正在检查…' : '刷新行情';
+  document.querySelector('#marketStatus').setAttribute('aria-busy', String(status.checking));
   if (document.body.dataset.calculating === 'true' && !status.error) return;
   const offlineMessage = status.error && state.data && navigator.onLine === false;
   setText('#marketStatus', offlineMessage ? '离线使用本机结果（离线缓存）'
-    : status.error ? `刷新失败：${status.error}。${state.data ? '已保留最后可用数据。' : '请点击刷新重试。'}`
+    : status.error ? `同步失败：${status.error}。${state.data ? '已保留最后可用数据，将自动重试。' : '请检查网络后重新打开。'}`
     : status.checking ? '正在后台同步新行情，不影响当前查看' : '行情已更新 · 行情时间：' + formatDateTime(state.data.generatedAt));
   if (!state.data && status.error) {
     setText('#freshness','行情读取失败');
-    document.querySelector('#recipeList').innerHTML = '<p class="empty-state">行情读取失败，可使用顶部“刷新行情”重试。</p>';
+    document.querySelector('#recipeList').innerHTML = '<p class="empty-state">行情读取失败，请检查网络后重新打开页面。</p>';
   }
 }
 
@@ -695,24 +694,11 @@ function renderStockedMaterials() {
 
 function renderBuyShortcut() {
   const plan = state.data.buyPlan;
-  const buyable = plan?.materials?.filter(item => item.action === 'buy' && !item.watchOnly) ?? [];
-  if (buyable.length) {
-    setText('#buyShortcutTitle', buyable.length + '种材料已到囤货价');
-    setText('#buyShortcutDetail', '查看各材料可买天数；整套采购还需参考预算和其他材料价格');
-    return;
-  }
-  if (!plan || plan.status !== 'ready' || !plan.primaryWindow) {
-    setText('#buyShortcutTitle', '本周没有可靠的最低买料时段');
-    setText('#buyShortcutDetail', '达到好价就买，点开查看材料清单');
-    return;
-  }
-  if (plan.nowAction === 'buy') {
-    setText('#buyShortcutTitle', '现在可以买料');
-    setText('#buyShortcutDetail', plan.nowReason || '现在的整套材料价格优于常见低价');
-    return;
-  }
-  setText('#buyShortcutTitle', '本周首选 ' + plan.primaryWindow.label + ' 买料');
-  setText('#buyShortcutDetail', plan.primaryWindow.reason || '点开查看备选时段和材料清单');
+  setText('#homeBuyWindow', plan?.primaryWindow?.label || '暂无可靠低价时段');
+  const sell = state.data.sell || {};
+  setText('#homeSellWindow', sell.preferredWindow || [sell.preferredWeekday, sell.preferredStartTime].filter(Boolean).join(' ') || '暂无可靠清仓时段');
+  setText('#buyShortcutTitle', '查看备料建议');
+  setText('#buyShortcutDetail', '建议买价、采购数量与历史时段');
 }
 
 function renderBuys() {
@@ -742,13 +728,13 @@ function renderBuys() {
   } else {
     const action = plan.nowAction;
     const canBuy = action === 'buy' && !budgetShortfall;
-    const heading = budgetShortfall ? '预算还不够买7天' : action === 'buy' ? '现在适合买料' : action === 'budget-shortfall' ? '预算暂时不够' : action === 'wait' ? '现在先等一等' : '当前买料信号不足';
+    const heading = budgetShortfall ? '预算还不够买7天' : action === 'buy' ? '采集时整套材料达到好价' : action === 'budget-shortfall' ? '预算暂时不够' : action === 'wait' ? '采集时尚未达到好价' : '历史价格依据不足';
     const reason = budgetShortfall
       ? '按你设置的单号预算，还差' + moneyWan(sevenDayCost - budget) + '才能买够7天。'
       : plan.nowReason || '暂无判断依据';
     now.classList.toggle('is-buy', canBuy);
     now.classList.toggle('is-shortfall', budgetShortfall);
-    now.innerHTML = '<span class="card-kicker">现在买，还是等？</span><strong>' + heading + '</strong><p>' + escapeHtml(reason) + '</p>';
+    now.innerHTML = '<span class="card-kicker">最近采集参考 · ' + escapeHtml(formatDateTime(state.data.generatedAt)) + '</span><strong>' + heading + '</strong><p>' + escapeHtml(reason.replaceAll('现在', '采集时')) + '</p><small>不是实时价格，买入前请在游戏内确认。</small>';
   }
   document.querySelectorAll('.days-option').forEach(button => {
     const selected = button.dataset.days === state.selectedDays;
@@ -767,9 +753,10 @@ function renderMaterials(plan, days, suggested) {
   const budget = state.settings.budgetWan * 10_000;
   const allMaterials = plan?.materials || [];
   const productionMaterials = allMaterials.filter(material => !material.watchOnly);
-  const materials = sortMaterials(productionMaterials.filter(material => !material.ignored));
-  const watchMaterials = sortMaterials(allMaterials.filter(material => material.watchOnly));
-  const ignoredMaterials = productionMaterials.filter(material => material.ignored);
+  const isFocus = material => !material.ignored || Number(material.currentPrice) >= 20_000 ||
+    Number(material.priceSamples?.[Math.floor((material.priceSamples?.length ?? 0) / 2)]) >= 20_000;
+  const materials = sortMaterials(allMaterials.filter(isFocus)).sort((a, b) => Number(a.watchOnly) - Number(b.watchOnly));
+  const ignoredMaterials = productionMaterials.filter(material => !isFocus(material));
   const unit = days === 30 ? 'perAccount30Days' : days === 14 ? 'perAccount14Days' : 'perAccount7Days';
   const knownCosts = productionMaterials.filter(m => numberOrNull(m.currentPrice) != null && numberOrNull(m[unit]) != null);
   const cost = productionMaterials.length && knownCosts.length === productionMaterials.length
@@ -794,27 +781,24 @@ function renderMaterials(plan, days, suggested) {
     const buy = material.action === 'buy';
     const stocked = state.stocked.items.find(row => normalizeText(row.name) === normalizeText(material.name));
     const totalCount = count == null ? '--' : state.settings.accounts > 0 ? nf.format(Math.ceil(count * state.settings.accounts)) + '个' : '设置账号数后计算';
-    return '<article class="material-card' + (material.watchOnly ? ' material-card--watch' : '') + '">' +
-      '<div class="material-head"><strong>' + escapeHtml(material.name || '未知材料') + '</strong><span class="material-action ' + (buy ? 'is-buy' : '') + '">' + (buy ? '已到' + material.tierDays + '天好价' : material.action === 'wait' ? '再等等' : '暂无信号') + '</span></div>' +
-      '<p class="material-reason">' + escapeHtml(material.reason || '按本周制造方案计算') + '</p>' +
+    return '<details class="material-card' + (material.watchOnly ? ' material-card--watch' : '') + '"><summary class="material-head"><strong>' + escapeHtml(material.name || '未知材料') + '</strong><span class="material-ceiling">建议 ≤ ' + (target == null ? '待统计' : nf.format(target)) + '</span></summary><div class="material-body">' +
+      '<p class="material-reason">' + (material.watchOnly ? '其他方案可用' : '当前方案需要') + ' · 最近采集价仅供参考</p>' +
       (buy && days > material.tierDays ? '<p class="material-reason">目前仅达到' + material.tierDays + '天好价；下方' + days + '天数量仅作备料参考，不建议一次买足。</p>' : '') +
       (material.exchangeFor ? '<p class="exchange-tag">用于兑换 ' + escapeHtml(material.exchangeFor) + '</p>' : material.acquisitionNote ? '<p class="acquisition-note">' + escapeHtml(material.acquisitionNote) + '</p>' : '') +
-      '<div class="material-metrics"><div><span>当前单价</span><strong>' + (price == null ? '--' : nf.format(price)) + '</strong></div><div><span>建议最高买价</span><strong>' + (target == null ? '--' : nf.format(target)) + '</strong></div><div><span>单号' + (material.watchOnly ? '备料' : '买') + days + '天</span><strong>' + (count == null ? '--' : nf.format(count) + '个') + '</strong></div><div><span>全部账号数量</span><strong>' + totalCount + '</strong></div><div><span>单号预计花费</span><strong>' + (price == null || count == null ? '--' : moneyWan(price * count)) + '</strong></div></div><p class="material-recipes">用于：' + escapeHtml((material.recipes || []).join('、') || '当前制造方案') + '</p>' +
+      '<div class="material-metrics"><div><span>最近采集价</span><strong>' + (price == null ? '--' : nf.format(price)) + '</strong></div><div><span>' + days + '天建议最高买价</span><strong>' + (target == null ? '--' : nf.format(target)) + '</strong></div></div>' +
+      '<details class="material-quantity"><summary>查看采购数量与用途</summary><div class="material-metrics"><div><span>单号' + (material.watchOnly ? '备料' : '买') + days + '天</span><strong>' + (count == null ? '--' : nf.format(count) + '个') + '</strong></div><div><span>全部账号数量</span><strong>' + totalCount + '</strong></div><div><span>单号预计花费</span><strong>' + (price == null || count == null ? '--' : moneyWan(price * count)) + '</strong></div></div><p class="material-recipes">用于：' + escapeHtml((material.recipes || []).join('、') || '当前制造方案') + '</p></details>' +
       (target == null ? '' : '<button class="material-stock-button" type="button" data-stock-material="' + escapeHtml(material.name) + '" data-stock-price="' + (stocked?.unitPrice ?? target) + '" data-stock-days="' + (stocked?.coverageDays ?? days) + '">' + (stocked ? '修改已囤价格' : '已囤到货') + '</button>') +
-      '</article>';
+      '</div></details>';
   };
   const groups = [
-    { key: 'buy', title: '现在可以买', open: true, rows: materials.filter(row => row.action === 'buy') },
+    { key: 'buy', title: '采集时达到好价', open: true, rows: materials.filter(row => row.action === 'buy') },
     { key: 'close', title: '接近好价', open: true, rows: materials.filter(row => row.action !== 'buy' && numberOrNull(row.currentPrice) != null && numberOrNull(row.tierThresholds?.['days' + days] ?? row.targetPrice) != null && row.currentPrice <= (row.tierThresholds?.['days' + days] ?? row.targetPrice) * 1.10) },
     { key: 'wait', title: '继续等待', open: false, rows: materials.filter(row => row.action !== 'buy' && numberOrNull(row.currentPrice) != null && numberOrNull(row.tierThresholds?.['days' + days] ?? row.targetPrice) != null && row.currentPrice > (row.tierThresholds?.['days' + days] ?? row.targetPrice) * 1.10) },
     { key: 'unknown', title: '数据不足', open: false, rows: materials.filter(row => numberOrNull(row.currentPrice) == null || numberOrNull(row.tierThresholds?.['days' + days] ?? row.targetPrice) == null) }
   ];
   const cards = groups.filter(group => group.rows.length).map(group => '<details class="material-group"' + (group.open ? ' open' : '') + '><summary><span>' + group.title + '</span><b>' + group.rows.length + '种</b></summary><div class="material-group__list">' + group.rows.map(materialCard).join('') + '</div></details>').join('');
-  const watchSection = watchMaterials.length
-    ? '<div class="watch-material-heading"><strong>稳定方案备料</strong><p>当前不一定生产，但继续盯价，避免常用配方需要切回时没有材料。</p></div>' + watchMaterials.map(materialCard).join('')
-    : '';
   document.querySelector('#buyList').innerHTML = ignoredNote +
-    (cards || '<div class="empty-state">当前生产材料都属于便宜稳定项，无需专门盯价。</div>') + watchSection;
+    (cards || '<div class="empty-state">当前生产材料都属于便宜稳定项，无需专门盯价。</div>');
 }
 
 function sortMaterials(rows) {
@@ -922,7 +906,6 @@ async function setLazyMode(enabled) {
 }
 
 function bindActions() {
-  document.querySelector('#refreshMarket').addEventListener('click', () => state.refresher?.check(true));
   document.querySelector('#openAccountSettings').addEventListener('click', async () => {
     openView('settings');
     try { await ensureFullData(); } catch { return; }
@@ -1082,7 +1065,7 @@ function bindActions() {
     event.preventDefault();
     const error = document.querySelector('#settingsError');
     try {
-      if (!state.data?.candidatePools) throw new Error('详细行情尚未加载，请先点击“刷新行情”重试。');
+      if (!state.data?.candidatePools) throw new Error('详细行情尚未加载，请检查网络后重新打开页面。');
       const next = readSettingsForm();
       localStorage.setItem('shoucai.settings', JSON.stringify(next));
       state.settings = next;

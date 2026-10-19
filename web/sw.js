@@ -1,6 +1,6 @@
 const PREFIX = 'shoucai:' + encodeURIComponent(new URL(self.registration.scope).pathname) + ':';
-const CACHE = PREFIX + 'v28';
-const SHELL = ['./', './index.html', './styles.css?v=28', './app.js?v=28', './app-state.js', './planner.js', './planner-worker.js', './planner-client.js', './computed-cache.js', './refresh-schedule.js', './scenarios.js', './snapshot-loader.js', './snapshot-cache.js', './market-refresh.js', './harvest.js', './engine/buy-window.mjs', './engine/market-history.mjs', './engine/recommend.mjs', './engine/weekend-prices.mjs', './budget.js', './manifest.webmanifest', './runtime-config.js', './favicon.svg'];
+const CACHE = PREFIX + 'v29';
+const SHELL = ['./', './index.html', './styles.css?v=29', './app.js?v=29', './app-state.js', './planner.js', './planner-worker.js', './planner-client.js', './computed-cache.js', './refresh-schedule.js', './scenarios.js', './snapshot-loader.js', './snapshot-cache.js', './market-refresh.js', './harvest.js', './engine/buy-window.mjs', './engine/market-history.mjs', './engine/recommend.mjs', './engine/weekend-prices.mjs', './budget.js', './manifest.webmanifest', './runtime-config.js', './favicon.svg'];
 
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(SHELL)).then(() => self.skipWaiting()));

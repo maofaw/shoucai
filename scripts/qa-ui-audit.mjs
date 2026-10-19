@@ -33,6 +33,17 @@ try {
       });
       results.push({ viewport, view, ...issue });
       if (viewport.width === 375) await page.screenshot({ path: `reports/${prefix}-${view}.png`, fullPage: true });
+      if (view === 'buy') {
+        await page.locator('#buyList details').evaluateAll(nodes => nodes.forEach(node => { node.open = true; }));
+        const expanded = await page.evaluate(() => ({
+          pageOverflow: document.documentElement.scrollWidth > innerWidth,
+          smallControls: [...document.querySelectorAll('#buyList button,#buyList summary')].filter(node => {
+            const bounds = node.getBoundingClientRect();
+            return bounds.width > 0 && bounds.height > 0 && (bounds.width < 44 || bounds.height < 44);
+          }).map(node => node.textContent)
+        }));
+        results.push({ viewport, view: 'buy-expanded', ...expanded });
+      }
     }
     await page.locator('[data-target=plans]').click();
     await page.locator('[data-plan-type=currentBest]').click();

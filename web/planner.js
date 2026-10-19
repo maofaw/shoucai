@@ -154,7 +154,7 @@ export function adoptProposal(proposal, now = new Date()) {
 export function adoptRecipe(savedAdoption, proposal, place, recipe, now = new Date()) {
   if (!PLACES.includes(place)) throw new Error('找不到要更换的制造台。');
   if (!Number.isInteger(recipe?.id) || recipe.id <= 0 || !recipe.name || !Number.isFinite(Number(recipe.hours))) {
-    throw new Error('所选配方数据不完整，请刷新行情后重试。');
+    throw new Error('所选配方数据不完整，请等待行情更新后重试。');
   }
   const current = validAdoption(savedAdoption);
   const base = current?.recipes ?? (proposal?.canAdopt ? proposal.recipes.map(row => ({

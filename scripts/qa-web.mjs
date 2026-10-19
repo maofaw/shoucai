@@ -14,6 +14,13 @@ fs.mkdirSync('reports', { recursive: true });
 try {
   const context = await browser.newContext({ viewport: { width: 375, height: 812 }, serviceWorkers: 'block', reducedMotion: 'reduce' });
   const page = await context.newPage();
+  await page.clock.install();
+  const scheduledCheck = async () => {
+    const response = page.waitForRequest(request => request.url().includes('/data/version.json'));
+    await page.clock.fastForward(12 * 3_600_000);
+    await response;
+    await page.waitForFunction(() => document.querySelector('#marketStatus').getAttribute('aria-busy') !== 'true');
+  };
   page.on('pageerror', error => { errors.push(error.message); console.error('[pageerror]', error.message); });
   const ready = async () => { await page.waitForFunction(() => document.querySelector('#profitLow').textContent !== '--'); };
   const view = async name => {
@@ -49,8 +56,7 @@ try {
   await page.unroute('**/data/version.json?*');
   await page.unroute('**/data/latest.json.gz?*');
   await page.unroute('**/data/latest.json?*');
-  await page.locator('#refreshMarket').click();
-  await page.waitForFunction(()=>!document.querySelector('#refreshMarket').disabled);
+  await scheduledCheck();
   await page.locator('[data-profit-period=day]').click();
   assert.match(await page.locator('#profitLowLabel').textContent(), /日保守/);
   await page.locator('[data-profit-period=month]').click();
@@ -141,8 +147,7 @@ try {
   const freshGzip = gzipSync(JSON.stringify(fresh));
   await page.route('**/data/version.json?*',route=>route.fulfill({json:{builtAt:fresh.builtAt,generatedAt:fresh.generatedAt}}));
   await page.route('**/data/latest.json.gz?*',route=>route.fulfill({body:freshGzip,contentType:'application/gzip'}));
-  await page.locator('#refreshMarket').click();
-  await page.waitForFunction(()=>!document.querySelector('#refreshMarket').disabled);
+  await scheduledCheck();
   assert.equal(await page.locator('#accounts').inputValue(),'33');
   assert.equal(await page.evaluate(()=>localStorage.getItem('shoucai.adoptedPlan')),adopted);
   assert.equal(await page.evaluate(()=>localStorage.getItem('shoucai.lastHarvestFinishedAt')),harvest);
@@ -153,9 +158,8 @@ try {
   await page.route('**/data/version.json?*',route=>route.abort());
   await page.route('**/data/latest.json.gz?*',route=>route.abort());
   await page.route('**/data/latest.json?*',route=>route.abort());
-  await page.locator('#refreshMarket').click();
-  await page.waitForFunction(()=>!document.querySelector('#refreshMarket').disabled);
-  assert.match(await page.locator('#marketStatus').textContent(),/刷新失败.*已保留/);
+  await scheduledCheck();
+  assert.match(await page.locator('#marketStatus').textContent(),/同步失败.*已保留/);
   await view('plans'); await page.locator('[data-plan-type=current]').click();
   assert.deepEqual(await page.locator('.recipe-main').allTextContents(),recipeNames);
   await page.unroute('**/data/latest.json.gz?*');
@@ -163,8 +167,7 @@ try {
   await page.unroute('**/data/version.json?*');
   await page.route('**/data/version.json?*',route=>route.fulfill({json:{builtAt:fresh.builtAt,generatedAt:fresh.generatedAt}}));
   await page.route('**/data/latest.json.gz?*',route=>route.fulfill({body:freshGzip,contentType:'application/gzip'}));
-  await page.locator('#refreshMarket').click();
-  await page.waitForFunction(()=>!document.querySelector('#refreshMarket').disabled);
+  await scheduledCheck();
   assert.match(await page.locator('#marketStatus').textContent(),/行情已更新/);
   assert.equal(await page.locator('#accounts').inputValue(),'33');
   await view('home');
@@ -192,6 +195,7 @@ try {
   await view('home');
   await page.screenshot({path:'reports/qa-home-adopted.png',fullPage:true,animations:'disabled'});
   await view('buy');
+  await page.locator('#stableOpportunityTitle').click();
   await page.locator('#stableOpportunityList > details').first().locator('summary').click();
   const stockButton = page.locator('#stableOpportunityList [data-stock-material]').first();
   if (await stockButton.count()) {
@@ -242,13 +246,13 @@ try {
   await timerPage.clock.fastForward(29000);
   assert.equal(versions,0);
   await timerPage.clock.fastForward(1001);
-  await timerPage.waitForFunction(()=>!document.querySelector('#refreshMarket').disabled);
+  await timerPage.waitForFunction(()=>!document.querySelector('#marketStatus').textContent.includes('正在后台同步'));
   assert.equal(versions,1);assert.equal(snapshots,1);
   await timerPage.evaluate(()=>Object.defineProperty(document,'hidden',{value:true,configurable:true}));
   await timerPage.clock.fastForward(300001);
   assert.equal(versions,1);
   await timerPage.evaluate(()=>{Object.defineProperty(document,'hidden',{value:false,configurable:true});document.dispatchEvent(new Event('visibilitychange'));});
-  await timerPage.waitForFunction(()=>!document.querySelector('#refreshMarket').disabled);
+  await timerPage.waitForFunction(()=>!document.querySelector('#marketStatus').textContent.includes('正在后台同步'));
   await timerPage.evaluate(()=>window.dispatchEvent(new Event('online')));
   assert.equal(versions,1);assert.equal(snapshots,1);
   assert.equal(await timerPage.locator('#accounts').inputValue(),'37');
@@ -294,8 +298,8 @@ try {
   await recoveryPage.goto('http://127.0.0.1:4175');
   await recoveryPage.waitForFunction(() => document.querySelector('#freshness').textContent === '行情读取失败');
   await recovery.unroute('**/data/**');
-  await recoveryPage.locator('#refreshMarket').click();
-  await recoveryPage.waitForFunction(() => document.querySelector('#profitLow').textContent !== '--' && !document.querySelector('#refreshMarket').disabled);
+  await recoveryPage.reload();
+  await recoveryPage.waitForFunction(() => document.querySelector('#profitLow').textContent !== '--');
   assert.equal(await recoveryPage.locator('#compactRecipeList article').count(), 4);
   await recovery.close();
   const cloud = await browser.newContext({ serviceWorkers: 'block' });
